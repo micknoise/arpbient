@@ -14,10 +14,15 @@ function clamp01(v) {
 // and slowly random-walks macro parameters (darkness/density/intensity) so
 // the piece drifts and breathes without ever fully resetting.
 //
-// Two event systems ride on top of the drift: sparse water "swells"
-// (fade in, hold, fade out -- cycling rather than a constant bed), and
-// occasional bass "solo" moments where the punchy sub-bass pulse takes
-// over and the pads/arp/texture duck out, then fade back in.
+// The piece runs in "movements" at a fixed tempo -- tempo never changes
+// mid-movement, only at an explicit ending: a huge multi-octave stab on
+// the tonic across pad/bass/arp, fading away to leave a lone sustained
+// pad, after which a new movement begins at a freshly chosen tempo.
+//
+// The bass is a continuous repetitive ostinato on the root that fades in
+// and out on its own slow drift, rather than a rare "takeover" event. The
+// pad additionally has a rhythmic 16th-note gate mode that switches on and
+// off at random.
 export class Conductor {
   constructor(audioCore) {
     this.core = audioCore;
@@ -45,12 +50,17 @@ export class Conductor {
     this.stepCount = 0;
     this.timerID = null;
 
-    this.macro = { darkness: 0.5, density: 0.6, textureLevel: 0.3, padLevel: 0.55, arpLevel: 0.4, intensity: 0.15 };
+    this.macro = { darkness: 0.5, density: 0.6, textureLevel: 0.3, padLevel: 0.55, arpLevel: 0.4, bassLevel: 0.35, intensity: 0.15 };
     this.intensityTarget = 0.15;
     this.intensitySurging = false;
 
-    this.soloActive = false;
-    this.soloEndBar = 0;
+    // 'normal' = playing generatively; 'quiet' = the ending stab has fired
+    // and only the lone resting pad is ringing out, waiting to restart.
+    this.phase = 'normal';
+    this.phaseUntil = 0;
+    this.movementEndBar = this._pickMovementLength();
+
+    this.padGate = { active: false, endBar: 0 };
 
     this.running = false;
   }
@@ -64,6 +74,9 @@ export class Conductor {
     this.running = true;
     this.chordIndex = 0;
     this.stepCount = 0;
+    this.phase = 'normal';
+    this.movementEndBar = this._pickMovementLength();
+    this.padGate = { active: false, endBar: 0 };
     this.nextStepTime = this.ctx.currentTime + 0.1;
     this.timerID = setInterval(() => this._scheduler(), this.lookahead);
   }
@@ -83,30 +96,47 @@ export class Conductor {
   }
 
   _scheduleStep(step, time) {
+    if (this.phase === 'quiet' && time >= this.phaseUntil) {
+      this._beginNewMovement(time);
+      return; // step/barIndex below are stale relative to the fresh movement
+    }
+
     const stepsPerBar = this.beatsPerBar * this.stepsPerBeat;
     const barStep = step % stepsPerBar;
     const barIndex = Math.floor(step / stepsPerBar);
 
-    if (barStep === 0) {
+    if (barStep === 0 && this.phase === 'normal') {
       this._onBar(barIndex, time);
     }
 
-    if (this.macro.density > 0.1 && !this.soloActive) {
+    if (this.phase !== 'normal') return;
+
+    if (this.macro.density > 0.1) {
       const arpCutoff = 800 + (1 - this.macro.darkness) * 1200 + this.macro.intensity * 600;
       this.arp.triggerStep(time, arpCutoff, 3 + this.macro.intensity * 6 + Math.random() * 2);
     }
 
-    if (this.soloActive && step % 8 === 0) {
-      const semi = Math.random() < 0.25 ? 7 : Math.random() < 0.15 ? -5 : 0;
-      const midi = this.root - 12 + semi;
-      this.bass.playNote(midi, time, {
-        cutoffBase: 900 + this.macro.intensity * 900,
-        cutoffFloor: 140,
-        q: 9 + this.macro.intensity * 7 + Math.random() * 3,
-        velocity: 0.55 + this.macro.intensity * 0.2,
-        holdTime: 0.1,
-      });
+    // Bass: a continuous repetitive pedal ostinato on the root, not a
+    // rare takeover -- its presence fades in and out via macro.bassLevel.
+    if (step % (this.stepsPerBeat / 2) === 0) {
+      this._fireBassPulse(time);
     }
+
+    if (this.padGate.active) {
+      this.pads.setGate(step % 2 === 0, time);
+    }
+  }
+
+  _fireBassPulse(time) {
+    const octaveUp = Math.random() < 0.18;
+    const midi = this.root - 12 + (octaveUp ? 12 : 0);
+    this.bass.playNote(midi, time, {
+      cutoffBase: 700 + this.macro.intensity * 500,
+      cutoffFloor: 130,
+      q: 8 + Math.random() * 5,
+      velocity: 0.45 + this.macro.intensity * 0.15,
+      holdTime: 0.06,
+    });
   }
 
   _onBar(barIndex, time) {
@@ -135,7 +165,11 @@ export class Conductor {
     }
 
     this._maybeSwellTexture(time);
-    this._maybeBassSolo(barIndex, time);
+    this._maybeTogglePadGate(barIndex, time);
+
+    if (barIndex >= this.movementEndBar) {
+      this._beginEnding(time);
+    }
   }
 
   _advanceChord(time) {
@@ -183,7 +217,6 @@ export class Conductor {
   // Sparse discrete water swells -- cycling ambience rather than a
   // constant background wash.
   _maybeSwellTexture(time) {
-    if (this.soloActive) return;
     const chance = 0.04 + this.macro.textureLevel * 0.06;
     if (Math.random() > chance) return;
 
@@ -195,32 +228,88 @@ export class Conductor {
     this.texture.swell(peak, attack, hold, release, time);
   }
 
-  // Occasionally lets the sub-bass take the spotlight: pads/arp/texture
-  // duck out, the bass pulses alone for a while, then everything fades
-  // back in.
-  _maybeBassSolo(barIndex, time) {
-    if (this.soloActive) {
-      if (barIndex >= this.soloEndBar) {
-        this.soloActive = false;
-        this.bass.setLevel(0.0);
-        this._applyLevels();
+  // Rhythmic pad gate: rare, short bursts of a hard 16th-note on/off chop,
+  // switching on and back off at random.
+  _maybeTogglePadGate(barIndex, time) {
+    if (!this.padGate.active) {
+      if (Math.random() < 0.05) {
+        this.padGate.active = true;
+        this.padGate.endBar = barIndex + 1 + Math.floor(Math.random() * 3);
       }
-      return;
-    }
-    if (barIndex > 0 && barIndex % 12 === 6 && Math.random() < 0.4) {
-      this.soloActive = true;
-      this.soloEndBar = barIndex + 8;
-      this.bass.setLevel(0.55 + Math.random() * 0.15);
-      this.pads.setLevel(0.04);
-      this.arp.setLevel(0.02);
-      this.texture.setWaterLevel(0.01);
+    } else if (barIndex >= this.padGate.endBar) {
+      this.padGate.active = false;
+      this.pads.setGate(true, time);
     }
   }
 
+  _pickMovementLength() {
+    return 24 + Math.floor(Math.random() * 17); // 24-40 bars
+  }
+
+  _pickNewTempo() {
+    return Math.round(55 + Math.random() * 70); // 55-125 bpm
+  }
+
+  // The ending: a huge combined stab on the tonic across pad/bass/arp,
+  // spread over a wide octave range, fading away to leave a lone
+  // sustained pad ringing out before the next movement begins.
+  _beginEnding(time) {
+    this.phase = 'quiet';
+    this.padGate.active = false;
+    this.pads.setGate(true, time);
+    this.pads.setLevel(0.7);
+    this.bass.setLevel(0.85);
+    this.arp.setLevel(0.6);
+
+    const chordSemis = buildChord(0, this.mode, 0, { seventh: false, add9: false });
+    const bigNotes = [];
+    for (let oct = -1; oct <= 3; oct++) {
+      chordSemis.forEach((semi) => {
+        const pc = ((semi % 12) + 12) % 12;
+        bigNotes.push(this.root + pc + oct * 12);
+      });
+    }
+    this.pads.playChord(bigNotes, time, 0.3, 1.8, { cutoffBase: 2000, q: 4, velocity: 0.42 });
+
+    this.bass.playNote(this.root - 12, time, {
+      cutoffBase: 2200,
+      cutoffFloor: 300,
+      q: 10,
+      velocity: 0.9,
+      holdTime: 0.3,
+    });
+
+    const pool = buildArpPool(this.root, chordSemis, 12);
+    this.arp.setPool(pool);
+    this.arp.setPattern(pool);
+    for (let i = 0; i < pool.length; i++) {
+      this.arp.triggerStep(time + i * 0.045, 4200, 2);
+    }
+
+    this.texture.setWaterLevel(0.0);
+
+    const restNotes = voiceChordOpen(this.root, chordSemis);
+    const restAttack = 2.5;
+    const restHold = 8 + Math.random() * 6;
+    this.pads.playChord(restNotes, time + 0.5, restHold, restAttack, { cutoffBase: 480, q: 3, velocity: 0.2 });
+
+    this.phaseUntil = time + 0.5 + restAttack + restHold + restAttack * 1.6 + 0.4;
+  }
+
+  _beginNewMovement(time) {
+    this.phase = 'normal';
+    this.stepCount = 0;
+    this.baseBpm = this._pickNewTempo();
+    this.bpm = this.baseBpm;
+    this.movementEndBar = this._pickMovementLength();
+    this._applyLevels();
+    this._advanceChord(time);
+  }
+
   _applyLevels() {
-    if (this.soloActive) return;
     this.pads.setLevel(this.macro.padLevel);
     this.arp.setLevel(this.macro.arpLevel);
+    this.bass.setLevel(this.macro.bassLevel);
   }
 
   _driftMacros() {
@@ -228,14 +317,16 @@ export class Conductor {
     this.macro.density = clamp01(this.macro.density + (Math.random() - 0.5) * 0.25);
     this.macro.textureLevel = clamp01(this.macro.textureLevel + (Math.random() - 0.5) * 0.3);
 
-    // Pad/arp levels: mostly a moderate random walk, occasionally dipping
-    // low for a deliberate "breath" before swelling back up.
+    // Pad/arp/bass levels: mostly a moderate random walk, occasionally
+    // dipping low for a deliberate "breath" before swelling back up.
     this.macro.padLevel = Math.random() < 0.15 ? 0.03 + Math.random() * 0.08 : clamp01(0.35 + Math.random() * 0.5);
     this.macro.arpLevel = Math.random() < 0.15 ? 0.02 + Math.random() * 0.06 : clamp01(0.2 + Math.random() * 0.4);
+    this.macro.bassLevel = Math.random() < 0.2 ? 0.02 + Math.random() * 0.05 : clamp01(0.3 + Math.random() * 0.4);
 
     // Intensity: occasional surges that decay back down over the
-    // following ticks, driving tempo/density/resonance faster and more
-    // erratic before calming.
+    // following ticks, driving density/resonance/filter-rate faster and
+    // more erratic before calming -- tempo is deliberately not touched
+    // here, so momentum only changes at an explicit ending.
     if (!this.intensitySurging) {
       if (Math.random() < 0.14) {
         this.intensityTarget = 0.7 + Math.random() * 0.3;
@@ -251,8 +342,6 @@ export class Conductor {
       }
     }
     this.macro.intensity = clamp01(this.macro.intensity + (this.intensityTarget - this.macro.intensity) * 0.5);
-
-    this.bpm = Math.max(this.baseBpm * 0.85, Math.min(170, this.baseBpm + this.macro.intensity * 80));
 
     this._applyLevels();
     this.pads.setFilterRate(0.02 + this.macro.intensity * 0.2 + (1 - this.macro.darkness) * 0.04);

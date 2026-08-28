@@ -12,7 +12,12 @@ export class PadLayer {
     this.chorus = createChorus(ctx, { rateL: 0.09, rateR: 0.12, depth: 0.004, baseDelay: 0.02, wet: 0.55 });
     this.bus = ctx.createGain();
     this.bus.gain.value = 0.5;
-    this.bus.connect(this.chorus.input);
+    // Fast on/off chop stage, separate from the slow-moving bus level --
+    // lets a rhythmic gate mode ride on top of the normal fades.
+    this.gateGain = ctx.createGain();
+    this.gateGain.gain.value = 1.0;
+    this.bus.connect(this.gateGain);
+    this.gateGain.connect(this.chorus.input);
     this.chorus.output.connect(this.output);
     audioCore.connectLayerOutput(this.output, { reverbAmount, delayAmount });
 
@@ -32,6 +37,15 @@ export class PadLayer {
 
   setFilterRate(hz) {
     this.filterLFO.frequency.setTargetAtTime(hz, this.ctx.currentTime, 2);
+  }
+
+  // Hard on/off chop for the gated pad mode -- a short ramp avoids a click
+  // but is fast enough to read as a rhythmic gate rather than a fade.
+  setGate(open, time) {
+    const target = open ? 1.0 : 0.0001;
+    this.gateGain.gain.cancelScheduledValues(time);
+    this.gateGain.gain.setValueAtTime(this.gateGain.gain.value, time);
+    this.gateGain.gain.linearRampToValueAtTime(target, time + 0.012);
   }
 
   // holdDuration: plateau time at full volume, after the attack ramp.
