@@ -1,7 +1,6 @@
 import { MODES, DARK_ROOTS, PROGRESSIONS, buildChord, voiceChordOpen, buildArpPool } from './theory.js';
 import { PadLayer } from './pads.js';
 import { ArpLayer } from './arp.js';
-import { TextureLayer } from './texture.js';
 import { BassLayer } from './bass.js';
 
 function clamp01(v) {
@@ -30,7 +29,6 @@ export class Conductor {
 
     this.pads = new PadLayer(this.ctx, audioCore, { reverbAmount: 0.5, delayAmount: 0.04 });
     this.arp = new ArpLayer(this.ctx, audioCore, { reverbAmount: 0.3, delayAmount: 0.5 });
-    this.texture = new TextureLayer(this.ctx, audioCore, { reverbAmount: 0.55 });
     this.bass = new BassLayer(this.ctx, audioCore, { reverbAmount: 0.18, delayAmount: 0 });
 
     this.root = DARK_ROOTS[Math.floor(Math.random() * DARK_ROOTS.length)];
@@ -50,9 +48,13 @@ export class Conductor {
     this.stepCount = 0;
     this.timerID = null;
 
-    this.macro = { darkness: 0.5, density: 0.6, textureLevel: 0.3, padLevel: 0.55, arpLevel: 0.4, bassLevel: 0.35, intensity: 0.15 };
+    this.macro = { darkness: 0.5, density: 0.6, padLevel: 0.55, arpLevel: 0.4, bassLevel: 0.35, intensity: 0.15 };
     this.intensityTarget = 0.15;
     this.intensitySurging = false;
+
+    // Bass note-density is an audible read on intensity: 8th notes at
+    // rest, switching to 16ths during a tension surge.
+    this.bassSixteenths = false;
 
     // 'normal' = playing generatively; 'quiet' = the ending stab has fired
     // and only the lone resting pad is ringing out, waiting to restart.
@@ -77,6 +79,7 @@ export class Conductor {
     this.phase = 'normal';
     this.movementEndBar = this._pickMovementLength();
     this.padGate = { active: false, endBar: 0 };
+    this.bassSixteenths = false;
     this.nextStepTime = this.ctx.currentTime + 0.1;
     this.timerID = setInterval(() => this._scheduler(), this.lookahead);
   }
@@ -118,7 +121,9 @@ export class Conductor {
 
     // Bass: a continuous repetitive pedal ostinato on the root, not a
     // rare takeover -- its presence fades in and out via macro.bassLevel.
-    if (step % (this.stepsPerBeat / 2) === 0) {
+    // Note density doubles to 16ths during an intensity surge.
+    const bassGrid = this.bassSixteenths ? 1 : this.stepsPerBeat / 2;
+    if (step % bassGrid === 0) {
       this._fireBassPulse(time);
     }
 
@@ -164,7 +169,10 @@ export class Conductor {
       this._driftMacros();
     }
 
-    this._maybeSwellTexture(time);
+    // Soft-edged threshold so the switch to 16ths tracks intensity surges
+    // rather than flipping on a hard boundary.
+    this.bassSixteenths = this.macro.intensity > 0.5 + (Math.random() - 0.5) * 0.2;
+
     this._maybeTogglePadGate(barIndex, time);
 
     if (barIndex >= this.movementEndBar) {
@@ -212,20 +220,6 @@ export class Conductor {
   _shiftMode() {
     const modes = Object.keys(MODES).filter((m) => m !== this.mode);
     this.mode = modes[Math.floor(Math.random() * modes.length)];
-  }
-
-  // Sparse discrete water swells -- cycling ambience rather than a
-  // constant background wash.
-  _maybeSwellTexture(time) {
-    const chance = 0.04 + this.macro.textureLevel * 0.06;
-    if (Math.random() > chance) return;
-
-    const strength = 0.4 + this.macro.textureLevel * 0.6;
-    const peak = (0.06 + Math.random() * 0.09) * strength;
-    const attack = 3 + Math.random() * 4;
-    const hold = 3 + Math.random() * 5;
-    const release = 4 + Math.random() * 5;
-    this.texture.swell(peak, attack, hold, release, time);
   }
 
   // Rhythmic pad gate: rare, short bursts of a hard 16th-note on/off chop,
@@ -286,8 +280,6 @@ export class Conductor {
       this.arp.triggerStep(time + i * 0.045, 4200, 2);
     }
 
-    this.texture.setWaterLevel(0.0);
-
     const restNotes = voiceChordOpen(this.root, chordSemis);
     const restAttack = 2.5;
     const restHold = 8 + Math.random() * 6;
@@ -315,7 +307,6 @@ export class Conductor {
   _driftMacros() {
     this.macro.darkness = clamp01(this.macro.darkness + (Math.random() - 0.5) * 0.3);
     this.macro.density = clamp01(this.macro.density + (Math.random() - 0.5) * 0.25);
-    this.macro.textureLevel = clamp01(this.macro.textureLevel + (Math.random() - 0.5) * 0.3);
 
     // Pad/arp/bass levels: mostly a moderate random walk, occasionally
     // dipping low for a deliberate "breath" before swelling back up.
