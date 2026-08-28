@@ -1,4 +1,4 @@
-# Illbient
+# Arpbient
 
 An endless, generative dark-ambient synth engine for the browser. Juno-60/ARP-Odyssey-style
 pads and arpeggios, a punchy resonant bass ostinato, slow filter-LFO movement, and a
