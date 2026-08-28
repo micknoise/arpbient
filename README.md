@@ -30,7 +30,7 @@ its own.
 | `js/audioCore.js` | `AudioContext`, master bus: saturation → limiter → master gain, plus shared reverb and delay send/returns |
 | `js/theory.js` | Modal scales, diatonic chord building, voicings, arpeggio note pools |
 | `js/effects.js` | Chorus, algorithmic reverb impulse, feedback delay |
-| `js/pads.js` | `PadLayer` — Juno-style pad voice (detuned saws + sub, shared filter LFO, gate stage) |
+| `js/pads.js` | `PadLayer` — two alternating pad voices (Juno-style saws+sub, and a spookier FM/glass bell texture), shared filter LFO, gate stage |
 | `js/arp.js` | `ArpLayer` — plucked arpeggiator voice with its own filter envelope |
 | `js/bass.js` | `BassLayer` — punchy resonant mono bass pluck |
 | `js/conductor.js` | `Conductor` — the composer: harmony, scheduling, macro drift, movement/ending structure |
@@ -51,8 +51,10 @@ out for 8–14 seconds. A new movement then begins — new tempo, new root key, 
 Tempo and key only ever change at this boundary, never mid-movement.
 
 A slow `intensity` value randomly surges and decays over the course of a movement, driving
-resonance, arp/bass note density, and filter-LFO speed up and down without touching tempo. A
-separate `timbre` value slowly drifts the pad/arp oscillator balance and detune width so the
+resonance, arp/bass note density, and filter-LFO speed up and down without touching tempo. The
+pad sits low in the mix by default and rides up with `intensity`, and switches to the spookier
+glass voice around those tension surges, rather than sitting loud under everything all the time.
+A separate `timbre` value slowly drifts the pad/arp oscillator balance and detune width so the
 piece travels through different textures over time.
 
 ## Embedding it in another app

@@ -213,6 +213,10 @@ export class Conductor {
     const oscLevel = 0.4 + this.macro.timbre * 0.35;
     const subLevel = 0.45 - this.macro.timbre * 0.3;
     const detune = 4 + this.macro.timbre * 14;
+    // Alternate in the spookier glass pad specifically around tension
+    // surges, rather than always sounding the same saw pad underneath
+    // everything.
+    const voice = this.intensitySurging || this.macro.intensity > 0.55 ? 'glass' : 'saw';
 
     this.pads.playChord(padNotes, time, holdDuration - fadeTime, fadeTime, {
       cutoffBase,
@@ -221,6 +225,7 @@ export class Conductor {
       oscLevel,
       subLevel,
       detune,
+      voice,
     });
 
     const pool = buildArpPool(this.root, chordSemis, 12);
@@ -344,7 +349,7 @@ export class Conductor {
     const restNotes = voiceChordOpen(this.root, chordSemis);
     const restAttack = 2.5;
     const restHold = 8 + Math.random() * 6;
-    this.pads.playChord(restNotes, time + 0.5, restHold, restAttack, { cutoffBase: 480, q: 3, velocity: 0.2 });
+    this.pads.playChord(restNotes, time + 0.5, restHold, restAttack, { cutoffBase: 480, q: 3, velocity: 0.2, voice: 'glass' });
 
     this.phaseUntil = time + 0.5 + restAttack + restHold + restAttack * 1.6 + 0.4;
   }
@@ -374,12 +379,6 @@ export class Conductor {
     // pad and arp travel through different textures over the piece.
     this.macro.timbre = clamp01(this.macro.timbre + (Math.random() - 0.5) * 0.25);
 
-    // Pad/arp/bass levels: mostly a moderate random walk, occasionally
-    // dipping low for a deliberate "breath" before swelling back up.
-    this.macro.padLevel = Math.random() < 0.15 ? 0.03 + Math.random() * 0.08 : clamp01(0.35 + Math.random() * 0.5);
-    this.macro.arpLevel = Math.random() < 0.15 ? 0.02 + Math.random() * 0.06 : clamp01(0.2 + Math.random() * 0.4);
-    this.macro.bassLevel = Math.random() < 0.2 ? 0.02 + Math.random() * 0.05 : clamp01(0.3 + Math.random() * 0.4);
-
     // Intensity: occasional surges that decay back down over the
     // following ticks, driving density/resonance/filter-rate faster and
     // more erratic before calming -- tempo is deliberately not touched
@@ -399,6 +398,15 @@ export class Conductor {
       }
     }
     this.macro.intensity = clamp01(this.macro.intensity + (this.intensityTarget - this.macro.intensity) * 0.5);
+
+    // Pad sits low in the mix by default and rides up with intensity, so
+    // it only becomes prominent during a tension surge rather than sitting
+    // loud underneath everything. Arp/bass keep their own moderate random
+    // walk, occasionally dipping low for a deliberate "breath".
+    const padRest = Math.random() < 0.12 ? 0.02 + Math.random() * 0.05 : 0.1 + Math.random() * 0.12;
+    this.macro.padLevel = clamp01(padRest + this.macro.intensity * 0.55);
+    this.macro.arpLevel = Math.random() < 0.15 ? 0.02 + Math.random() * 0.06 : clamp01(0.2 + Math.random() * 0.4);
+    this.macro.bassLevel = Math.random() < 0.2 ? 0.02 + Math.random() * 0.05 : clamp01(0.3 + Math.random() * 0.4);
 
     this._applyLevels();
     this.pads.setFilterRate(0.02 + this.macro.intensity * 0.2 + (1 - this.macro.darkness) * 0.04);

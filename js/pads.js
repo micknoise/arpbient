@@ -1,8 +1,11 @@
 import { midiToFreq } from './theory.js';
 import { createChorus } from './effects.js';
 
-// Juno-style pad layer: detuned saws + sub-square per note, lowpass filter
-// with shared slow LFO ("breathing" cutoff movement), stereo chorus on the bus.
+// Pad layer with two alternating voices sharing one bus/filter-LFO/chorus:
+// 'saw' is the Juno-style detuned-saws-plus-sub pad through a lowpass; 'glass'
+// is a spookier FM bell/shimmer texture through a bandpass (see
+// _playGlassVoice). Shared slow LFO gives both a "breathing" filter movement,
+// with stereo chorus on the bus.
 export class PadLayer {
   constructor(ctx, audioCore, { reverbAmount = 0.45, delayAmount = 0.05 } = {}) {
     this.ctx = ctx;
@@ -16,6 +19,12 @@ export class PadLayer {
     // lets a rhythmic gate mode ride on top of the normal fades.
     this.gateGain = ctx.createGain();
     this.gateGain.gain.value = 1.0;
+    // Tracks the last value we *commanded* the gate to, since these are
+    // scheduled ahead of real time -- reading gateGain.gain.value back at
+    // call time would give the audio thread's current value, not the value
+    // it will actually hold once earlier scheduled ramps land, causing a
+    // jump (click) at the start of the next ramp.
+    this._gateTarget = 1.0;
     this.bus.connect(this.gateGain);
     this.gateGain.connect(this.chorus.input);
     this.chorus.output.connect(this.output);
@@ -44,17 +53,25 @@ export class PadLayer {
   setGate(open, time) {
     const target = open ? 1.0 : 0.0001;
     this.gateGain.gain.cancelScheduledValues(time);
-    this.gateGain.gain.setValueAtTime(this.gateGain.gain.value, time);
+    this.gateGain.gain.setValueAtTime(this._gateTarget, time);
     this.gateGain.gain.linearRampToValueAtTime(target, time + 0.012);
+    this._gateTarget = target;
   }
 
   // holdDuration: plateau time at full volume, after the attack ramp.
   // oscLevel/subLevel/detune let the caller drift the ensemble's balance
   // and width over time so the pad travels through different textures
-  // rather than always sitting at the same mix.
-  playChord(midiNotes, startTime, holdDuration, fadeTime, { cutoffBase = 900, q = 5, velocity = 0.22, oscLevel = 0.55, subLevel = 0.28, detune = 8 } = {}) {
+  // rather than always sitting at the same mix. voice picks which pad
+  // character plays this chord: 'saw' (default, Juno-style) or 'glass'
+  // (spookier FM/bell texture, see _playGlassVoice) so the two can
+  // alternate rather than always sounding the same.
+  playChord(midiNotes, startTime, holdDuration, fadeTime, { cutoffBase = 900, q = 5, velocity = 0.22, oscLevel = 0.55, subLevel = 0.28, detune = 8, voice = 'saw' } = {}) {
     midiNotes.forEach((midi, idx) => {
-      this._playVoice(midi, startTime, holdDuration, fadeTime, cutoffBase + idx * 80, q + Math.random() * 3, velocity, oscLevel, subLevel, detune);
+      if (voice === 'glass') {
+        this._playGlassVoice(midi, startTime, holdDuration, fadeTime, cutoffBase + idx * 80, q + Math.random() * 3, velocity, detune);
+      } else {
+        this._playVoice(midi, startTime, holdDuration, fadeTime, cutoffBase + idx * 80, q + Math.random() * 3, velocity, oscLevel, subLevel, detune);
+      }
     });
   }
 
@@ -107,6 +124,81 @@ export class PadLayer {
     env.gain.exponentialRampToValueAtTime(0.0001, releaseEnd);
 
     [osc1, osc2, sub].forEach((o) => {
+      o.start(t0);
+      o.stop(stopTime);
+    });
+  }
+
+  // Spookier, glassier alternate pad voice: an FM bell tone (sine carrier
+  // modulated by a slightly inharmonic partner, so the partials don't line
+  // up into a clean harmonic stack) plus a quiet high shimmer layer, run
+  // through a resonant bandpass instead of a lowpass so the low end drops
+  // out and the tone reads as hollow/glassy. A slow, randomized vibrato on
+  // pitch gives it an unsettled, detuned-glass wobble rather than the
+  // steady detune of the saw pad.
+  _playGlassVoice(midi, startTime, holdDuration, fadeTime, cutoffBase, q, velocity, detune) {
+    const ctx = this.ctx;
+    const freq = midiToFreq(midi);
+
+    const carrier = ctx.createOscillator();
+    carrier.type = 'sine';
+    carrier.frequency.value = freq;
+
+    const modulator = ctx.createOscillator();
+    modulator.type = 'sine';
+    modulator.frequency.value = freq * 2.01;
+    const modGain = ctx.createGain();
+    modGain.gain.value = freq * 0.55;
+    modulator.connect(modGain);
+    modGain.connect(carrier.frequency);
+
+    const shimmer = ctx.createOscillator();
+    shimmer.type = 'triangle';
+    shimmer.frequency.value = freq * 2;
+    shimmer.detune.value = detune * 1.5;
+    const shimmerGain = ctx.createGain();
+    shimmerGain.gain.value = 0.12;
+
+    const vibrato = ctx.createOscillator();
+    vibrato.type = 'sine';
+    vibrato.frequency.value = 0.07 + Math.random() * 0.15;
+    const vibratoDepth = ctx.createGain();
+    vibratoDepth.gain.value = 3 + Math.random() * 4;
+    vibrato.connect(vibratoDepth);
+    vibratoDepth.connect(carrier.detune);
+    vibratoDepth.connect(shimmer.detune);
+
+    const voiceGain = ctx.createGain();
+    voiceGain.gain.value = 1;
+
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.value = cutoffBase;
+    filter.Q.value = q;
+    this.filterLFODepth.connect(filter.frequency);
+
+    const env = ctx.createGain();
+    env.gain.value = 0.0001;
+
+    carrier.connect(voiceGain);
+    shimmer.connect(shimmerGain);
+    shimmerGain.connect(voiceGain);
+    voiceGain.connect(filter);
+    filter.connect(env);
+    env.connect(this.bus);
+
+    const t0 = startTime;
+    const attackEnd = t0 + fadeTime;
+    const releaseStart = t0 + fadeTime + holdDuration;
+    const releaseEnd = releaseStart + fadeTime * 1.6;
+    const stopTime = releaseEnd + 0.5;
+
+    env.gain.setValueAtTime(0.0001, t0);
+    env.gain.linearRampToValueAtTime(velocity, attackEnd);
+    env.gain.setValueAtTime(velocity, releaseStart);
+    env.gain.exponentialRampToValueAtTime(0.0001, releaseEnd);
+
+    [carrier, modulator, shimmer, vibrato].forEach((o) => {
       o.start(t0);
       o.stop(stopTime);
     });
