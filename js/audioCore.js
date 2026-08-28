@@ -38,13 +38,13 @@ export class AudioCore {
     this.reverbSend = ctx.createGain();
     this.reverbSend.gain.value = 1;
     this.convolver = ctx.createConvolver();
-    this.convolver.buffer = createReverbImpulse(ctx, 4.5, 3.2);
+    this.convolver.buffer = createReverbImpulse(ctx, 6.5, 3.6);
     this.reverbDark = ctx.createBiquadFilter();
     this.reverbDark.type = 'lowpass';
-    this.reverbDark.frequency.value = 3400;
+    this.reverbDark.frequency.value = 2400;
     this.reverbDark.Q.value = 0.2;
     this.reverbReturn = ctx.createGain();
-    this.reverbReturn.gain.value = 0.55;
+    this.reverbReturn.gain.value = 0.6;
     this.reverbSend.connect(this.convolver);
     this.convolver.connect(this.reverbDark);
     this.reverbDark.connect(this.reverbReturn);

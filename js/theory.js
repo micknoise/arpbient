@@ -1,23 +1,24 @@
 // Harmony helpers: dark modal scales, diatonic chord building, spread voicings.
 
+// Both modes here carry a b6 (minor sixth) above the root -- kept
+// deliberately narrow so the piece never wanders out of minor-key territory.
 export const MODES = {
-  aeolian: [0, 2, 3, 5, 7, 8, 10],  // natural minor
-  dorian: [0, 2, 3, 5, 7, 9, 10],
+  aeolian: [0, 2, 3, 5, 7, 8, 10], // natural minor
   phrygian: [0, 1, 3, 5, 7, 8, 10],
 };
 
 // Low, dark root pitches (MIDI) to anchor each session in.
 export const DARK_ROOTS = [40, 41, 42, 43, 45, 47]; // E2 F2 F#2 G2 A2 B2
 
-// Scale-degree progressions (0-indexed). Heavy repetition / small motion
-// on purpose -- Carpenter/Stranger-Things style pedal-driven harmony.
+// Scale-degree progressions (0-indexed). Almost entirely i / bVI (the
+// "minor six") -- a narrow, insistent, Carpenter-style harmonic cell with
+// only rare excursions to v for tension.
 export const PROGRESSIONS = [
-  [0, 0, 5, 3],
-  [0, 3, 0, 4],
-  [0, 5, 3, 4],
-  [0, 0, 3, 3],
-  [0, 2, 5, 3],
-  [0, 4, 3, 0],
+  [0, 0, 0, 5],
+  [0, 5, 0, 0],
+  [0, 0, 5, 5],
+  [0, 5, 5, 0],
+  [0, 0, 4, 0],
 ];
 
 export function midiToFreq(midi) {

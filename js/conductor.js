@@ -1,6 +1,6 @@
 import { MODES, DARK_ROOTS, PROGRESSIONS, buildChord, voiceChordOpen, buildArpPool } from './theory.js';
 import { PadLayer } from './pads.js';
-import { ArpLayer } from './arp.js';
+import { StabLayer } from './stabs.js';
 import { TextureLayer } from './texture.js';
 import { BassLayer } from './bass.js';
 
@@ -8,33 +8,32 @@ function clamp01(v) {
   return Math.max(0, Math.min(1, v));
 }
 
-// Generative composer: picks a key/mode/progression at session start, then
-// runs a lookahead scheduler that advances chords on bar boundaries, steps
-// the arpeggiator on 16ths, mutates the arp pattern in small increments,
-// and slowly random-walks macro parameters (darkness/density/intensity) so
-// the piece drifts and breathes without ever fully resetting.
-//
-// Two event systems ride on top of the drift: sparse texture "swells"
-// (wind/water fade in, hold, fade out -- cycling rather than a constant
-// bed), and occasional bass "solo" moments where a sub-bass pulse takes
-// over and the pads/arp/texture duck out, then fade back in.
+// Generative composer for the "sinister" pass: a fixed minor mode (always
+// carrying a b6) with a narrow i/bVI harmonic cell, a sparse dark pad bed,
+// a punchy resonant bass ostinato, and bright irregular stab hits for
+// suspense stings. Chord lengths are irregular on purpose -- the piece
+// should never settle into a predictable four-bar foursquare pattern.
+// An intensity surge system periodically pushes tempo/density/resonance
+// into faster, more erratic territory before it eases back down, and
+// occasional bass "solo" moments duck everything else out.
 export class Conductor {
   constructor(audioCore) {
     this.core = audioCore;
     this.ctx = audioCore.ctx;
 
-    this.pads = new PadLayer(this.ctx, audioCore, { reverbAmount: 0.5, delayAmount: 0.04 });
-    this.arp = new ArpLayer(this.ctx, audioCore, { reverbAmount: 0.3, delayAmount: 0.5 });
+    this.pads = new PadLayer(this.ctx, audioCore, { reverbAmount: 0.5, delayAmount: 0.03 });
+    this.stabs = new StabLayer(this.ctx, audioCore, { reverbAmount: 0.5, delayAmount: 0.12 });
     this.texture = new TextureLayer(this.ctx, audioCore, { reverbAmount: 0.55 });
-    this.bass = new BassLayer(this.ctx, audioCore, { reverbAmount: 0.18, delayAmount: 0 });
+    this.bass = new BassLayer(this.ctx, audioCore, { reverbAmount: 0.12, delayAmount: 0 });
 
     this.root = DARK_ROOTS[Math.floor(Math.random() * DARK_ROOTS.length)];
-    this.mode = ['aeolian', 'dorian', 'phrygian'][Math.floor(Math.random() * 3)];
+    this.mode = Object.keys(MODES)[Math.floor(Math.random() * Object.keys(MODES).length)];
     this.progression = PROGRESSIONS[Math.floor(Math.random() * PROGRESSIONS.length)];
     this.chordIndex = 0;
-    this.barsPerChord = 4;
+    this.currentBassRoot = this.root - 12;
+    this.stabPool = [];
 
-    this.baseBpm = 76;
+    this.baseBpm = 70;
     this.bpm = this.baseBpm;
     this.beatsPerBar = 4;
     this.stepsPerBeat = 4; // 16th-note grid
@@ -43,9 +42,10 @@ export class Conductor {
     this.scheduleAheadTime = 0.15; // seconds
     this.nextStepTime = 0;
     this.stepCount = 0;
+    this.nextChordBar = 0;
     this.timerID = null;
 
-    this.macro = { darkness: 0.5, density: 0.6, textureLevel: 0.3, padLevel: 0.55, arpLevel: 0.4, intensity: 0.15 };
+    this.macro = { darkness: 0.6, density: 0.5, textureLevel: 0.25, padLevel: 0.25, bassLevel: 0.4, intensity: 0.15 };
     this.intensityTarget = 0.15;
     this.intensitySurging = false;
 
@@ -64,6 +64,7 @@ export class Conductor {
     this.running = true;
     this.chordIndex = 0;
     this.stepCount = 0;
+    this.nextChordBar = 0;
     this.nextStepTime = this.ctx.currentTime + 0.1;
     this.timerID = setInterval(() => this._scheduler(), this.lookahead);
   }
@@ -91,42 +92,65 @@ export class Conductor {
       this._onBar(barIndex, time);
     }
 
-    if (this.macro.density > 0.1 && !this.soloActive) {
-      const arpCutoff = 800 + (1 - this.macro.darkness) * 1200 + this.macro.intensity * 600;
-      this.arp.triggerStep(time, arpCutoff, 3 + this.macro.intensity * 6 + Math.random() * 2);
+    const isBeat = barStep % this.stepsPerBeat === 0;
+
+    if (!this.soloActive && this.stabPool.length) {
+      if (isBeat) {
+        const chance = 0.06 + this.macro.density * 0.12 + this.macro.intensity * 0.2;
+        if (Math.random() < chance) this._fireStab(time);
+      } else if (Math.random() < 0.015 + this.macro.intensity * 0.04) {
+        this._fireStab(time);
+      }
     }
 
-    if (this.soloActive && step % 8 === 0) {
-      const semi = Math.random() < 0.25 ? 7 : Math.random() < 0.15 ? -5 : 0;
-      const midi = this.root - 12 + semi;
-      const dur = this._stepDuration() * 8 * 1.4;
-      this.bass.playNote(midi, time, dur, {
-        cutoffBase: 220 + this.macro.intensity * 80,
-        q: 5 + Math.random() * 4,
-        velocity: 0.5,
+    if (!this.soloActive && this.macro.bassLevel > 0.08) {
+      const grid = this.macro.intensity > 0.55 ? this.stepsPerBeat / 2 : this.stepsPerBeat;
+      const restChance = 0.3 - this.macro.density * 0.15;
+      if (step % grid === 0 && Math.random() > restChance) {
+        this._fireBass(time, false);
+      }
+    }
+
+    if (this.soloActive && step % (this.stepsPerBeat / 2) === 0) {
+      this._fireBass(time, true);
+    }
+  }
+
+  _fireStab(time) {
+    const midi = this.stabPool[Math.floor(Math.random() * this.stabPool.length)];
+    const cutoffBase = 3800 + this.macro.intensity * 2400;
+    const q = 3 + this.macro.intensity * 5 + Math.random() * 2;
+    const velocity = (0.16 + this.macro.intensity * 0.12) * (0.6 + Math.random() * 0.5);
+    this.stabs.hit(midi, time, { cutoffBase, q, velocity, decay: 0.3 + Math.random() * 0.3 });
+
+    if (Math.random() < 0.08) {
+      const echoMidi = this.stabPool[Math.floor(Math.random() * this.stabPool.length)];
+      this.stabs.hit(echoMidi, time + 0.09 + Math.random() * 0.05, {
+        cutoffBase: cutoffBase * 0.8,
+        q,
+        velocity: velocity * 0.7,
+        decay: 0.25,
       });
     }
   }
 
+  _fireBass(time, solo) {
+    let midi = this.currentBassRoot;
+    if (!solo && Math.random() < 0.1) midi += 7;
+    if (solo && Math.random() < 0.3) midi += Math.random() < 0.5 ? 7 : 12;
+    const velocity = solo ? 0.6 + this.macro.intensity * 0.25 : 0.4 + this.macro.intensity * 0.25;
+    this.bass.playNote(midi, time, {
+      cutoffBase: 900 + this.macro.intensity * 900,
+      cutoffFloor: 140,
+      q: 9 + this.macro.intensity * 7 + Math.random() * 3,
+      velocity,
+      holdTime: solo ? 0.05 : 0.1,
+    });
+  }
+
   _onBar(barIndex, time) {
-    const chordBar = barIndex % this.barsPerChord;
-    if (chordBar === 0) {
-      this._advanceChord(time);
-    }
-
-    const progressionLoopBars = this.barsPerChord * this.progression.length;
-    if (barIndex > 0 && barIndex % progressionLoopBars === 0) {
-      if (Math.random() < 0.35) {
-        this.progression = PROGRESSIONS[Math.floor(Math.random() * PROGRESSIONS.length)];
-      }
-      if (Math.random() < 0.12) {
-        this._shiftMode();
-      }
-    }
-
-    const mutateChance = 0.2 + this.macro.intensity * 0.6;
-    if (barIndex % 2 === 0 && Math.random() < mutateChance) {
-      this.arp.mutate();
+    if (barIndex >= this.nextChordBar) {
+      this._advanceChord(barIndex, time);
     }
 
     if (barIndex % 4 === 0) {
@@ -137,72 +161,61 @@ export class Conductor {
     this._maybeBassSolo(barIndex, time);
   }
 
-  _advanceChord(time) {
+  _pickHoldBars() {
+    const opts = [3, 4, 4, 4, 5, 6];
+    return opts[Math.floor(Math.random() * opts.length)];
+  }
+
+  _advanceChord(barIndex, time) {
     const degree = this.progression[this.chordIndex % this.progression.length];
     this.chordIndex++;
+    if (this.chordIndex % this.progression.length === 0 && Math.random() < 0.35) {
+      this.progression = PROGRESSIONS[Math.floor(Math.random() * PROGRESSIONS.length)];
+    }
 
-    const chordSemis = buildChord(0, this.mode, degree, { seventh: true, add9: Math.random() < 0.3 });
+    const seventh = Math.random() < 0.12;
+    const chordSemis = buildChord(0, this.mode, degree, { seventh, add9: false });
     const padNotes = voiceChordOpen(this.root, chordSemis);
 
-    const holdBeats = this.barsPerChord * this.beatsPerBar;
-    const holdDuration = holdBeats * (60 / this.bpm);
-    const fadeTime = Math.min(holdDuration * 0.35, 5.0);
-    const cutoffBase = 450 + this.macro.darkness * 80 + (1 - this.macro.darkness) * 850;
+    const holdBars = this._pickHoldBars();
+    this.nextChordBar = barIndex + holdBars;
+
+    const holdDuration = holdBars * this.beatsPerBar * (60 / this.bpm);
+    const fadeTime = Math.min(holdDuration * 0.35, 6.0);
+    const cutoffBase = 260 + this.macro.darkness * 40 + (1 - this.macro.darkness) * 420;
 
     this.pads.playChord(padNotes, time, holdDuration - fadeTime, fadeTime, {
       cutoffBase,
-      q: 5 + this.macro.intensity * 8 + Math.random() * 3,
-      velocity: 0.16 + this.macro.density * 0.1,
+      q: 4 + this.macro.intensity * 6 + Math.random() * 2,
+      velocity: 0.1 + this.macro.padLevel * 0.06,
     });
 
-    const pool = buildArpPool(this.root, chordSemis, 12);
-    this.arp.setPool(pool);
-    this.arp.setPattern(this._makePattern(pool));
+    this.currentBassRoot = this.root - 12 + chordSemis[0];
+    this.stabPool = buildArpPool(this.root, chordSemis, 24);
   }
 
-  _makePattern(pool) {
-    const len = 16;
-    const restChance = clamp01(0.32 - this.macro.density * 0.15 - this.macro.intensity * 0.2);
-    const pattern = [];
-    for (let i = 0; i < len; i++) {
-      if (Math.random() < restChance) {
-        pattern.push(null);
-        continue;
-      }
-      pattern.push(pool[i % pool.length]);
-    }
-    return pattern;
-  }
-
-  _shiftMode() {
-    const modes = Object.keys(MODES).filter((m) => m !== this.mode);
-    this.mode = modes[Math.floor(Math.random() * modes.length)];
-  }
-
-  // Sparse discrete wind/water swells -- cycling ambience rather than a
+  // Sparse discrete water swells -- cycling ambience rather than a
   // constant background wash.
   _maybeSwellTexture(time) {
     if (this.soloActive) return;
-    const chance = 0.04 + this.macro.textureLevel * 0.06;
+    const chance = 0.035 + this.macro.textureLevel * 0.05;
     if (Math.random() > chance) return;
 
-    const which = Math.random() < 0.5 ? 'wind' : 'water';
-    const strength = 0.4 + this.macro.textureLevel * 0.6;
-    const peak = which === 'wind' ? (0.05 + Math.random() * 0.06) * strength : (0.06 + Math.random() * 0.09) * strength;
+    const strength = 0.35 + this.macro.textureLevel * 0.55;
+    const peak = (0.05 + Math.random() * 0.07) * strength;
     const attack = 3 + Math.random() * 4;
-    const hold = 3 + Math.random() * 5;
+    const hold = 3 + Math.random() * 4;
     const release = 4 + Math.random() * 5;
-    this.texture.swell(which, peak, attack, hold, release, time);
+    this.texture.swell(peak, attack, hold, release, time);
   }
 
-  // Occasionally lets the sub-bass take the spotlight: pads/arp/texture
-  // duck out, the bass pulses alone for a while, then everything fades
-  // back in.
+  // Occasionally lets the bass take the spotlight: pads/stabs/texture duck
+  // out, the bass pulses alone and louder for a while, then everything
+  // fades back in.
   _maybeBassSolo(barIndex, time) {
     if (this.soloActive) {
       if (barIndex >= this.soloEndBar) {
         this.soloActive = false;
-        this.bass.setLevel(0.0);
         this._applyLevels();
       }
       return;
@@ -210,18 +223,18 @@ export class Conductor {
     if (barIndex > 0 && barIndex % 12 === 6 && Math.random() < 0.4) {
       this.soloActive = true;
       this.soloEndBar = barIndex + 8;
-      this.bass.setLevel(0.55 + Math.random() * 0.15);
-      this.pads.setLevel(0.04);
-      this.arp.setLevel(0.02);
-      this.texture.setWindLevel(0.01);
-      this.texture.setWaterLevel(0.01);
+      this.bass.setLevel(0.6 + Math.random() * 0.2);
+      this.pads.setLevel(0.03);
+      this.stabs.setLevel(0.05);
+      this.texture.setWaterLevel(0.0);
     }
   }
 
   _applyLevels() {
     if (this.soloActive) return;
     this.pads.setLevel(this.macro.padLevel);
-    this.arp.setLevel(this.macro.arpLevel);
+    this.stabs.setLevel(0.4);
+    this.bass.setLevel(this.macro.bassLevel);
   }
 
   _driftMacros() {
@@ -229,10 +242,10 @@ export class Conductor {
     this.macro.density = clamp01(this.macro.density + (Math.random() - 0.5) * 0.25);
     this.macro.textureLevel = clamp01(this.macro.textureLevel + (Math.random() - 0.5) * 0.3);
 
-    // Pad/arp levels: mostly a moderate random walk, occasionally dipping
+    // Pad/bass levels: mostly a moderate random walk, occasionally dipping
     // low for a deliberate "breath" before swelling back up.
-    this.macro.padLevel = Math.random() < 0.15 ? 0.03 + Math.random() * 0.08 : clamp01(0.35 + Math.random() * 0.5);
-    this.macro.arpLevel = Math.random() < 0.15 ? 0.02 + Math.random() * 0.06 : clamp01(0.2 + Math.random() * 0.4);
+    this.macro.padLevel = Math.random() < 0.25 ? 0.02 + Math.random() * 0.06 : clamp01(0.15 + Math.random() * 0.35);
+    this.macro.bassLevel = Math.random() < 0.12 ? 0.02 + Math.random() * 0.05 : clamp01(0.35 + Math.random() * 0.4);
 
     // Intensity: occasional surges that decay back down over the
     // following ticks, driving tempo/density/resonance faster and more
@@ -253,11 +266,10 @@ export class Conductor {
     }
     this.macro.intensity = clamp01(this.macro.intensity + (this.intensityTarget - this.macro.intensity) * 0.5);
 
-    this.bpm = Math.max(this.baseBpm * 0.85, Math.min(170, this.baseBpm + this.macro.intensity * 80));
+    this.bpm = Math.max(this.baseBpm * 0.8, Math.min(190, this.baseBpm + this.macro.intensity * 110));
 
     this._applyLevels();
-    this.pads.setFilterRate(0.02 + this.macro.intensity * 0.2 + (1 - this.macro.darkness) * 0.04);
-    this.arp.setFilterRate(0.05 + this.macro.intensity * 0.4);
+    this.pads.setFilterRate(0.015 + this.macro.intensity * 0.15 + (1 - this.macro.darkness) * 0.03);
   }
 
   setTempo(bpm) {
@@ -271,7 +283,7 @@ export class Conductor {
 
   setDensityOverride(v) {
     this.macro.density = v;
-    this.macro.arpLevel = clamp01(0.2 + v * 0.5);
+    this.macro.bassLevel = clamp01(0.25 + v * 0.4);
     this._applyLevels();
   }
 }

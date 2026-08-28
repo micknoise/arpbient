@@ -14,7 +14,7 @@ let core = null;
 let conductor = null;
 let viz = null;
 
-const MODE_LABELS = { aeolian: 'aeolian', dorian: 'dorian', phrygian: 'phrygian' };
+const MODE_LABELS = { aeolian: 'aeolian', phrygian: 'phrygian' };
 
 function updateStatus() {
   if (!conductor) return;

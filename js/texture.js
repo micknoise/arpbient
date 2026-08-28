@@ -1,5 +1,5 @@
-// Naturalistic ambient bed: filtered brown-noise wind and water, sparse
-// water droplet transients, and a faint tape/vinyl hiss for lofi warmth.
+// Naturalistic ambient bed: filtered water shimmer, sparse droplet
+// transients, and a faint tape/vinyl hiss for lofi warmth.
 export class TextureLayer {
   constructor(ctx, audioCore, { reverbAmount = 0.5, delayAmount = 0 } = {}) {
     this.ctx = ctx;
@@ -11,29 +11,6 @@ export class TextureLayer {
     this.noiseBuffer = this._makeBrownBuffer(6);
     this.whiteBuffer = this._makeWhiteBuffer(4);
 
-    // Wind bed
-    this.windGain = ctx.createGain();
-    this.windGain.gain.value = 0.0;
-    this.windSource = ctx.createBufferSource();
-    this.windSource.buffer = this.noiseBuffer;
-    this.windSource.loop = true;
-    this.windFilter = ctx.createBiquadFilter();
-    this.windFilter.type = 'bandpass';
-    this.windFilter.frequency.value = 500;
-    this.windFilter.Q.value = 0.5;
-    this.windLFO = ctx.createOscillator();
-    this.windLFO.type = 'sine';
-    this.windLFO.frequency.value = 0.025;
-    this.windLFODepth = ctx.createGain();
-    this.windLFODepth.gain.value = 260;
-    this.windLFO.connect(this.windLFODepth);
-    this.windLFODepth.connect(this.windFilter.frequency);
-    this.windSource.connect(this.windFilter);
-    this.windFilter.connect(this.windGain);
-    this.windGain.connect(this.output);
-    this.windSource.start();
-    this.windLFO.start();
-
     // Water shimmer bed
     this.waterGain = ctx.createGain();
     this.waterGain.gain.value = 0.0;
@@ -42,13 +19,13 @@ export class TextureLayer {
     this.waterSource.loop = true;
     this.waterFilter = ctx.createBiquadFilter();
     this.waterFilter.type = 'bandpass';
-    this.waterFilter.frequency.value = 2200;
+    this.waterFilter.frequency.value = 2000;
     this.waterFilter.Q.value = 0.9;
     this.waterLFO = ctx.createOscillator();
     this.waterLFO.type = 'sine';
     this.waterLFO.frequency.value = 0.11;
     this.waterLFODepth = ctx.createGain();
-    this.waterLFODepth.gain.value = 900;
+    this.waterLFODepth.gain.value = 800;
     this.waterLFO.connect(this.waterLFODepth);
     this.waterLFODepth.connect(this.waterFilter.frequency);
     this.waterSource.connect(this.waterFilter);
@@ -65,7 +42,7 @@ export class TextureLayer {
     this.hissFilter.type = 'highpass';
     this.hissFilter.frequency.value = 5000;
     this.hissGain = ctx.createGain();
-    this.hissGain.gain.value = 0.007;
+    this.hissGain.gain.value = 0.006;
     this.hissSource.connect(this.hissFilter);
     this.hissFilter.connect(this.hissGain);
     this.hissGain.connect(this.output);
@@ -99,24 +76,20 @@ export class TextureLayer {
     return buf;
   }
 
-  setWindLevel(v) {
-    this.windGain.gain.setTargetAtTime(v, this.ctx.currentTime, 3);
-  }
-
   setWaterLevel(v) {
     this.waterGain.gain.setTargetAtTime(v, this.ctx.currentTime, 3);
   }
 
-  // A single discrete swell -- fades a bed up, holds, fades it back to
-  // silence -- so texture reads as a cycling event rather than a constant wash.
-  swell(which, peak, attack, hold, release, startTime) {
-    const gainNode = which === 'wind' ? this.windGain : this.waterGain;
+  // A single discrete swell -- fades the water bed up, holds, fades it back
+  // to silence -- so it reads as a cycling event rather than a constant wash.
+  swell(peak, attack, hold, release, startTime) {
+    const g = this.waterGain;
     const t0 = startTime;
-    gainNode.gain.cancelScheduledValues(t0);
-    gainNode.gain.setValueAtTime(gainNode.gain.value, t0);
-    gainNode.gain.linearRampToValueAtTime(peak, t0 + attack);
-    gainNode.gain.setValueAtTime(peak, t0 + attack + hold);
-    gainNode.gain.linearRampToValueAtTime(0.0001, t0 + attack + hold + release);
+    g.gain.cancelScheduledValues(t0);
+    g.gain.setValueAtTime(g.gain.value, t0);
+    g.gain.linearRampToValueAtTime(peak, t0 + attack);
+    g.gain.setValueAtTime(peak, t0 + attack + hold);
+    g.gain.linearRampToValueAtTime(0.0001, t0 + attack + hold + release);
   }
 
   scheduleDroplet(time) {

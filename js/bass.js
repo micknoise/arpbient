@@ -1,10 +1,11 @@
 import { midiToFreq } from './theory.js';
 
-// Mono sub-bass voice (Juno/ARP Odyssey style): saw + sine sub through a
-// resonant lowpass. Silent by default -- the conductor brings it in for
-// featured "solo" moments rather than keeping it always on.
+// Punchy resonant sub-bass (ARP Odyssey acid character): saw + sine sub,
+// a fast-opening filter that snaps shut right after each hit. Built as a
+// repeatable pulse voice -- the conductor drives it as a recurring
+// ostinato, not a sustained drone.
 export class BassLayer {
-  constructor(ctx, audioCore, { reverbAmount = 0.15, delayAmount = 0 } = {}) {
+  constructor(ctx, audioCore, { reverbAmount = 0.12, delayAmount = 0 } = {}) {
     this.ctx = ctx;
 
     this.output = ctx.createGain();
@@ -13,25 +14,16 @@ export class BassLayer {
     this.bus.gain.value = 0.0;
     this.bus.connect(this.output);
     audioCore.connectLayerOutput(this.output, { reverbAmount, delayAmount });
-
-    this.filterLFO = ctx.createOscillator();
-    this.filterLFO.type = 'sine';
-    this.filterLFO.frequency.value = 0.05;
-    this.filterLFODepth = ctx.createGain();
-    this.filterLFODepth.gain.value = 120;
-    this.filterLFO.connect(this.filterLFODepth);
-    this.filterLFO.start();
   }
 
   setLevel(v) {
-    this.bus.gain.setTargetAtTime(v, this.ctx.currentTime, 1.5);
+    this.bus.gain.setTargetAtTime(v, this.ctx.currentTime, 0.8);
   }
 
-  setFilterRate(hz) {
-    this.filterLFO.frequency.setTargetAtTime(hz, this.ctx.currentTime, 2);
-  }
-
-  playNote(midi, startTime, duration, { cutoffBase = 260, q = 6, velocity = 0.6 } = {}) {
+  // Percussive pluck: the amp envelope is a short punch (attack/decay/hold/
+  // release), while the filter separately snaps open then drops down fast
+  // -- the "filter dropping down after each punchy note" character.
+  playNote(midi, startTime, { cutoffBase = 1200, cutoffFloor = 160, q = 11, velocity = 0.65, holdTime = 0.08 } = {}) {
     const ctx = this.ctx;
     const freq = midiToFreq(midi);
 
@@ -45,13 +37,11 @@ export class BassLayer {
     const oscGain = ctx.createGain();
     oscGain.gain.value = 0.5;
     const subGain = ctx.createGain();
-    subGain.gain.value = 0.75;
+    subGain.gain.value = 0.8;
 
     const filter = ctx.createBiquadFilter();
     filter.type = 'lowpass';
-    filter.frequency.value = cutoffBase;
     filter.Q.value = q;
-    this.filterLFODepth.connect(filter.frequency);
 
     const env = ctx.createGain();
     env.gain.value = 0.0001;
@@ -63,16 +53,22 @@ export class BassLayer {
     filter.connect(env);
     env.connect(this.bus);
 
-    const attack = Math.min(0.4, duration * 0.15);
-    const release = Math.min(0.6, duration * 0.25);
+    const attack = 0.004;
+    const decay = 0.14;
+    const release = 0.22;
     const t0 = startTime;
-    const releaseStart = t0 + duration - release;
-    const stopTime = t0 + duration + 0.3;
+    const sustainLevel = velocity * 0.35;
+    const holdEnd = t0 + attack + decay + holdTime;
+    const stopTime = holdEnd + release + 0.05;
+
+    filter.frequency.setValueAtTime(cutoffBase, t0);
+    filter.frequency.exponentialRampToValueAtTime(Math.max(60, cutoffFloor), t0 + attack + decay * 1.3);
 
     env.gain.setValueAtTime(0.0001, t0);
     env.gain.linearRampToValueAtTime(velocity, t0 + attack);
-    env.gain.setValueAtTime(velocity, releaseStart);
-    env.gain.exponentialRampToValueAtTime(0.0001, t0 + duration);
+    env.gain.exponentialRampToValueAtTime(Math.max(0.0005, sustainLevel), t0 + attack + decay);
+    env.gain.setValueAtTime(sustainLevel, holdEnd);
+    env.gain.exponentialRampToValueAtTime(0.0001, holdEnd + release);
 
     osc.start(t0);
     osc.stop(stopTime);
