@@ -65,6 +65,13 @@ export class Conductor {
     this.padGate = { active: false, endBar: 0, tick: 0 };
 
     this.running = false;
+
+    // Optional hooks for a host app to sync against -- assign a function
+    // to react to that event, leave null to ignore it. See README.
+    this.onBar = null; // (barIndex) => void, fires once per bar
+    this.onChord = null; // ({ root, mode, degree, midiNotes }) => void, fires on every chord change
+    this.onEnding = null; // () => void, fires the instant the ending stab triggers
+    this.onMovementStart = null; // ({ root, mode, bpm }) => void, fires when a new movement begins after an ending
   }
 
   _stepDuration() {
@@ -155,6 +162,8 @@ export class Conductor {
   }
 
   _onBar(barIndex, time) {
+    if (this.onBar) this.onBar(barIndex);
+
     const chordBar = barIndex % this.barsPerChord;
     if (chordBar === 0) {
       this._advanceChord(time);
@@ -217,6 +226,8 @@ export class Conductor {
     const pool = buildArpPool(this.root, chordSemis, 12);
     this.arp.setPool(pool);
     this.arp.setPattern(this._makePattern(pool));
+
+    if (this.onChord) this.onChord({ root: this.root, mode: this.mode, degree, midiNotes: padNotes });
   }
 
   _makePattern(pool) {
@@ -297,6 +308,7 @@ export class Conductor {
   // sustained pad ringing out before the next movement begins.
   _beginEnding(time) {
     this.phase = 'quiet';
+    if (this.onEnding) this.onEnding();
     this.padGate.active = false;
     this.pads.setGate(true, time);
     this.pads.setLevel(0.7);
@@ -345,6 +357,7 @@ export class Conductor {
     this.root = DARK_ROOTS[Math.floor(Math.random() * DARK_ROOTS.length)];
     this.movementEndBar = this._pickMovementLength();
     this._applyLevels();
+    if (this.onMovementStart) this.onMovementStart({ root: this.root, mode: this.mode, bpm: this.bpm });
     this._advanceChord(time);
   }
 
@@ -405,5 +418,17 @@ export class Conductor {
     this.macro.density = v;
     this.macro.arpLevel = clamp01(0.2 + v * 0.5);
     this._applyLevels();
+  }
+
+  setTimbreOverride(v) {
+    this.macro.timbre = clamp01(v);
+  }
+
+  // Forces the ending sequence at the next bar boundary instead of
+  // waiting for the current movement to run its course. No-op if an
+  // ending is already in progress.
+  triggerEnding() {
+    if (this.phase !== 'normal') return;
+    this.movementEndBar = 0;
   }
 }
