@@ -14,9 +14,9 @@ function clamp01(v) {
 // and slowly random-walks macro parameters (darkness/density/intensity) so
 // the piece drifts and breathes without ever fully resetting.
 //
-// Two event systems ride on top of the drift: sparse texture "swells"
-// (wind/water fade in, hold, fade out -- cycling rather than a constant
-// bed), and occasional bass "solo" moments where a sub-bass pulse takes
+// Two event systems ride on top of the drift: sparse water "swells"
+// (fade in, hold, fade out -- cycling rather than a constant bed), and
+// occasional bass "solo" moments where the punchy sub-bass pulse takes
 // over and the pads/arp/texture duck out, then fade back in.
 export class Conductor {
   constructor(audioCore) {
@@ -99,11 +99,12 @@ export class Conductor {
     if (this.soloActive && step % 8 === 0) {
       const semi = Math.random() < 0.25 ? 7 : Math.random() < 0.15 ? -5 : 0;
       const midi = this.root - 12 + semi;
-      const dur = this._stepDuration() * 8 * 1.4;
-      this.bass.playNote(midi, time, dur, {
-        cutoffBase: 220 + this.macro.intensity * 80,
-        q: 5 + Math.random() * 4,
-        velocity: 0.5,
+      this.bass.playNote(midi, time, {
+        cutoffBase: 900 + this.macro.intensity * 900,
+        cutoffFloor: 140,
+        q: 9 + this.macro.intensity * 7 + Math.random() * 3,
+        velocity: 0.55 + this.macro.intensity * 0.2,
+        holdTime: 0.1,
       });
     }
   }
@@ -179,20 +180,19 @@ export class Conductor {
     this.mode = modes[Math.floor(Math.random() * modes.length)];
   }
 
-  // Sparse discrete wind/water swells -- cycling ambience rather than a
+  // Sparse discrete water swells -- cycling ambience rather than a
   // constant background wash.
   _maybeSwellTexture(time) {
     if (this.soloActive) return;
     const chance = 0.04 + this.macro.textureLevel * 0.06;
     if (Math.random() > chance) return;
 
-    const which = Math.random() < 0.5 ? 'wind' : 'water';
     const strength = 0.4 + this.macro.textureLevel * 0.6;
-    const peak = which === 'wind' ? (0.05 + Math.random() * 0.06) * strength : (0.06 + Math.random() * 0.09) * strength;
+    const peak = (0.06 + Math.random() * 0.09) * strength;
     const attack = 3 + Math.random() * 4;
     const hold = 3 + Math.random() * 5;
     const release = 4 + Math.random() * 5;
-    this.texture.swell(which, peak, attack, hold, release, time);
+    this.texture.swell(peak, attack, hold, release, time);
   }
 
   // Occasionally lets the sub-bass take the spotlight: pads/arp/texture
@@ -213,7 +213,6 @@ export class Conductor {
       this.bass.setLevel(0.55 + Math.random() * 0.15);
       this.pads.setLevel(0.04);
       this.arp.setLevel(0.02);
-      this.texture.setWindLevel(0.01);
       this.texture.setWaterLevel(0.01);
     }
   }
