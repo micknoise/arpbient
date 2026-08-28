@@ -61,15 +61,24 @@ export class ArpLayer {
     return this.pool[Math.floor(Math.random() * this.pool.length)];
   }
 
-  triggerStep(time, cutoffBase = 1400, q = 3) {
+  // sawLevel/sqLevel/detune let the caller drift the ensemble's balance
+  // and width over time so the arp travels through different textures
+  // rather than always sitting at the same mix.
+  triggerStep(time, cutoffBase = 1400, q = 3, sawLevel = 0.5, sqLevel = 0.35, detune = -6) {
     if (!this.enabled || this.pattern.length === 0) return;
     const midi = this.pattern[this.step % this.pattern.length];
     this.step++;
     if (midi == null) return;
-    this._pluck(midi, time, cutoffBase, q);
+    this._pluck(midi, time, cutoffBase, q, sawLevel, sqLevel, detune);
   }
 
-  _pluck(midi, time, cutoffBase, q) {
+  // Direct one-off note, bypassing the pattern/step grid -- used for the
+  // ending flourish, which fires an explicit sequence of specific notes.
+  hit(midi, time, cutoffBase = 1400, q = 3, sawLevel = 0.5, sqLevel = 0.35, detune = -6) {
+    this._pluck(midi, time, cutoffBase, q, sawLevel, sqLevel, detune);
+  }
+
+  _pluck(midi, time, cutoffBase, q, sawLevel = 0.5, sqLevel = 0.35, detune = -6) {
     const ctx = this.ctx;
     const freq = midiToFreq(midi);
 
@@ -79,10 +88,12 @@ export class ArpLayer {
     const osc2 = ctx.createOscillator();
     osc2.type = 'square';
     osc2.frequency.value = freq;
-    osc2.detune.value = -6;
+    osc2.detune.value = detune;
 
-    const mix = ctx.createGain();
-    mix.gain.value = 0.5;
+    const sawGain = ctx.createGain();
+    sawGain.gain.value = sawLevel;
+    const sqGain = ctx.createGain();
+    sqGain.gain.value = sqLevel;
     const filter = ctx.createBiquadFilter();
     filter.type = 'lowpass';
     filter.Q.value = q;
@@ -91,9 +102,10 @@ export class ArpLayer {
     const env = ctx.createGain();
     env.gain.value = 0.0001;
 
-    osc.connect(mix);
-    osc2.connect(mix);
-    mix.connect(filter);
+    osc.connect(sawGain);
+    osc2.connect(sqGain);
+    sawGain.connect(filter);
+    sqGain.connect(filter);
     filter.connect(env);
     env.connect(this.bus);
 

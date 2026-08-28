@@ -48,7 +48,7 @@ export class Conductor {
     this.stepCount = 0;
     this.timerID = null;
 
-    this.macro = { darkness: 0.5, density: 0.6, padLevel: 0.55, arpLevel: 0.4, bassLevel: 0.35, intensity: 0.15 };
+    this.macro = { darkness: 0.5, density: 0.6, padLevel: 0.55, arpLevel: 0.4, bassLevel: 0.35, intensity: 0.15, timbre: 0.5 };
     this.intensityTarget = 0.15;
     this.intensitySurging = false;
 
@@ -116,7 +116,11 @@ export class Conductor {
 
     if (this.macro.density > 0.1) {
       const arpCutoff = 800 + (1 - this.macro.darkness) * 1200 + this.macro.intensity * 600;
-      this.arp.triggerStep(time, arpCutoff, 3 + this.macro.intensity * 6 + Math.random() * 2);
+      const arpQ = 2 + this.macro.timbre * 6 + this.macro.intensity * 6 + Math.random() * 2;
+      const sawLevel = 0.3 + this.macro.timbre * 0.35;
+      const sqLevel = 0.5 - this.macro.timbre * 0.3;
+      const detune = -4 - this.macro.timbre * 10;
+      this.arp.triggerStep(time, arpCutoff, arpQ, sawLevel, sqLevel, detune);
     }
 
     // Bass: a continuous repetitive pedal ostinato on the root, not a
@@ -191,11 +195,17 @@ export class Conductor {
     const holdDuration = holdBeats * (60 / this.bpm);
     const fadeTime = Math.min(holdDuration * 0.35, 5.0);
     const cutoffBase = 450 + this.macro.darkness * 80 + (1 - this.macro.darkness) * 850;
+    const oscLevel = 0.4 + this.macro.timbre * 0.35;
+    const subLevel = 0.45 - this.macro.timbre * 0.3;
+    const detune = 4 + this.macro.timbre * 14;
 
     this.pads.playChord(padNotes, time, holdDuration - fadeTime, fadeTime, {
       cutoffBase,
-      q: 5 + this.macro.intensity * 8 + Math.random() * 3,
+      q: 4 + this.macro.timbre * 10 + this.macro.intensity * 8 + Math.random() * 3,
       velocity: 0.16 + this.macro.density * 0.1,
+      oscLevel,
+      subLevel,
+      detune,
     });
 
     const pool = buildArpPool(this.root, chordSemis, 12);
@@ -244,6 +254,37 @@ export class Conductor {
     return Math.round(55 + Math.random() * 70); // 55-125 bpm
   }
 
+  // Direction for the ending flourish: ascending, descending, an arch
+  // (up then down), or a shuffled run -- varies each time rather than
+  // always climbing straight through the pool.
+  _flourishOrder(pool) {
+    const notes = [...pool].sort((a, b) => a - b);
+    const shape = Math.random();
+    if (shape < 0.28) return notes;
+    if (shape < 0.56) return notes.slice().reverse();
+    if (shape < 0.8) return notes.concat(notes.slice(0, -1).reverse());
+    const shuffled = notes.slice();
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    return shuffled;
+  }
+
+  // Cumulative time offsets for the flourish notes -- a random start/end
+  // gap so each run can accelerate, decelerate, or stay roughly even,
+  // rather than always ticking at a fixed rate.
+  _flourishTimings(count) {
+    const startGap = 0.025 + Math.random() * 0.055;
+    const endGap = 0.025 + Math.random() * 0.055;
+    const offsets = [0];
+    for (let i = 1; i < count; i++) {
+      const t = i / Math.max(1, count - 1);
+      offsets.push(offsets[i - 1] + startGap + (endGap - startGap) * t);
+    }
+    return offsets;
+  }
+
   // The ending: a huge combined stab on the tonic across pad/bass/arp,
   // spread over a wide octave range, fading away to leave a lone
   // sustained pad ringing out before the next movement begins.
@@ -275,10 +316,11 @@ export class Conductor {
 
     const pool = buildArpPool(this.root, chordSemis, 12);
     this.arp.setPool(pool);
-    this.arp.setPattern(pool);
-    for (let i = 0; i < pool.length; i++) {
-      this.arp.triggerStep(time + i * 0.045, 4200, 2);
-    }
+    const flourishNotes = this._flourishOrder(pool);
+    const offsets = this._flourishTimings(flourishNotes.length);
+    flourishNotes.forEach((midi, i) => {
+      this.arp.hit(midi, time + offsets[i], 4200, 2, 0.5, 0.35, -6);
+    });
 
     const restNotes = voiceChordOpen(this.root, chordSemis);
     const restAttack = 2.5;
@@ -293,6 +335,7 @@ export class Conductor {
     this.stepCount = 0;
     this.baseBpm = this._pickNewTempo();
     this.bpm = this.baseBpm;
+    this.root = DARK_ROOTS[Math.floor(Math.random() * DARK_ROOTS.length)];
     this.movementEndBar = this._pickMovementLength();
     this._applyLevels();
     this._advanceChord(time);
@@ -307,6 +350,9 @@ export class Conductor {
   _driftMacros() {
     this.macro.darkness = clamp01(this.macro.darkness + (Math.random() - 0.5) * 0.3);
     this.macro.density = clamp01(this.macro.density + (Math.random() - 0.5) * 0.25);
+    // Slow drift through oscillator balance/resonance/detune width, so the
+    // pad and arp travel through different textures over the piece.
+    this.macro.timbre = clamp01(this.macro.timbre + (Math.random() - 0.5) * 0.25);
 
     // Pad/arp/bass levels: mostly a moderate random walk, occasionally
     // dipping low for a deliberate "breath" before swelling back up.

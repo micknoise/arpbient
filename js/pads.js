@@ -49,13 +49,16 @@ export class PadLayer {
   }
 
   // holdDuration: plateau time at full volume, after the attack ramp.
-  playChord(midiNotes, startTime, holdDuration, fadeTime, { cutoffBase = 900, q = 5, velocity = 0.22 } = {}) {
+  // oscLevel/subLevel/detune let the caller drift the ensemble's balance
+  // and width over time so the pad travels through different textures
+  // rather than always sitting at the same mix.
+  playChord(midiNotes, startTime, holdDuration, fadeTime, { cutoffBase = 900, q = 5, velocity = 0.22, oscLevel = 0.55, subLevel = 0.28, detune = 8 } = {}) {
     midiNotes.forEach((midi, idx) => {
-      this._playVoice(midi, startTime, holdDuration, fadeTime, cutoffBase + idx * 80, q + Math.random() * 3, velocity);
+      this._playVoice(midi, startTime, holdDuration, fadeTime, cutoffBase + idx * 80, q + Math.random() * 3, velocity, oscLevel, subLevel, detune);
     });
   }
 
-  _playVoice(midi, startTime, holdDuration, fadeTime, cutoffBase, q, velocity) {
+  _playVoice(midi, startTime, holdDuration, fadeTime, cutoffBase, q, velocity, oscLevel, subLevel, detune) {
     const ctx = this.ctx;
     const freq = midiToFreq(midi);
 
@@ -65,15 +68,15 @@ export class PadLayer {
     const osc2 = ctx.createOscillator();
     osc2.type = 'sawtooth';
     osc2.frequency.value = freq;
-    osc2.detune.value = 8;
+    osc2.detune.value = detune;
     const sub = ctx.createOscillator();
     sub.type = 'square';
     sub.frequency.value = freq / 2;
 
     const oscGain = ctx.createGain();
-    oscGain.gain.value = 0.55;
+    oscGain.gain.value = oscLevel;
     const subGain = ctx.createGain();
-    subGain.gain.value = 0.28;
+    subGain.gain.value = subLevel;
 
     const filter = ctx.createBiquadFilter();
     filter.type = 'lowpass';
