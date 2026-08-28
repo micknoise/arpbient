@@ -62,7 +62,7 @@ export class Conductor {
     this.phaseUntil = 0;
     this.movementEndBar = this._pickMovementLength();
 
-    this.padGate = { active: false, endBar: 0 };
+    this.padGate = { active: false, endBar: 0, tick: 0 };
 
     this.running = false;
   }
@@ -78,7 +78,7 @@ export class Conductor {
     this.stepCount = 0;
     this.phase = 'normal';
     this.movementEndBar = this._pickMovementLength();
-    this.padGate = { active: false, endBar: 0 };
+    this.padGate = { active: false, endBar: 0, tick: 0 };
     this.bassSixteenths = false;
     this.nextStepTime = this.ctx.currentTime + 0.1;
     this.timerID = setInterval(() => this._scheduler(), this.lookahead);
@@ -132,7 +132,13 @@ export class Conductor {
     }
 
     if (this.padGate.active) {
-      this.pads.setGate(step % 2 === 0, time);
+      // Two alternating transitions per 16th-note step -- a 32nd-note
+      // chop, twice the rate of stepping the gate once per step.
+      const half = this._stepDuration() / 2;
+      this.pads.setGate(this.padGate.tick % 2 === 0, time);
+      this.padGate.tick++;
+      this.pads.setGate(this.padGate.tick % 2 === 0, time + half);
+      this.padGate.tick++;
     }
   }
 
@@ -238,6 +244,7 @@ export class Conductor {
     if (!this.padGate.active) {
       if (Math.random() < 0.05) {
         this.padGate.active = true;
+        this.padGate.tick = 0;
         this.padGate.endBar = barIndex + 1 + Math.floor(Math.random() * 3);
       }
     } else if (barIndex >= this.padGate.endBar) {
