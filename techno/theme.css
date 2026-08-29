@@ -1,0 +1,12 @@
+:root {
+  --bg: #0b0608;
+  --panel: rgba(22, 10, 12, 0.72);
+  --border: rgba(255, 59, 48, 0.35);
+  --accent: #ff3b30;
+  --accent2: #d7142c;
+  --accent3: #22d3c4;
+  --text: #f2e6e6;
+  --text-dim: #9a8080;
+  --fade: rgba(11, 6, 8, 0.22);
+  --glow: rgba(255, 59, 48, 0.35);
+}

@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Techno</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%230b0608'/%3E%3Ccircle cx='8' cy='8' r='5' fill='none' stroke='%23ff3b30' stroke-width='1.6'/%3E%3Ccircle cx='8' cy='8' r='2' fill='%23ff3b30'/%3E%3C/svg%3E" />
+<link rel="stylesheet" href="style.css" />
+<link rel="stylesheet" href="theme.css" />
+</head>
+<body>
+  <canvas id="viz"></canvas>
+  <div class="vignette"></div>
+  <div class="scanlines"></div>
+
+  <div class="overlay">
+    <div class="title-block">
+      <p class="title">TECHNO</p>
+      <p class="subtitle">endless driving acid · 4-on-the-floor</p>
+    </div>
+
+    <div class="panel">
+      <button id="playBtn">PLAY</button>
+      <div class="controls">
+        <div class="control-row">
+          <label for="vol">Volume</label>
+          <input id="vol" type="range" min="0" max="1" step="0.01" value="0.8" />
+        </div>
+        <div class="control-row">
+          <label for="acid">Acidity</label>
+          <input id="acid" type="range" min="0" max="1" step="0.01" value="0.5" />
+        </div>
+        <div class="control-row">
+          <label for="drive">Drive</label>
+          <input id="drive" type="range" min="0" max="1" step="0.01" value="0.4" />
+        </div>
+        <div class="control-row">
+          <label for="dens">Density</label>
+          <input id="dens" type="range" min="0" max="1" step="0.01" value="0.6" />
+        </div>
+        <div class="control-row">
+          <label for="tempo">Tempo</label>
+          <input id="tempo" type="range" min="118" max="138" step="1" value="126" />
+        </div>
+      </div>
+      <div id="status"></div>
+    </div>
+  </div>
+
+  <div class="hint">click play and let it run &middot; headphones recommended &middot; it never repeats the same way twice</div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

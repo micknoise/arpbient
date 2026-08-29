@@ -7,6 +7,7 @@ with the Web Audio API. No samples, no build step, no dependencies.
 | --- | --- | --- |
 | **Arpbient** | dark-ambient: Juno-60/ARP-Odyssey pads and arpeggios, a resonant bass ostinato, movement → ending form | [`arpbient/`](arpbient/) |
 | **Wraith** | horror: sub-octave drone, hollow organ swells, metallic "eerie melody", Shepard dread glide, sparse bass melody — it builds, detonates, and starts over in a new key | [`wraith/`](wraith/) |
+| **Techno** | driving 4-on-the-floor: acid bass ostinato, off-beat hats, 16th plucks and syncopated stabs, sidechain pump, riser endings | [`techno/`](techno/) |
 
 Reference points: John Carpenter, the *Halloween* score, early Gary Numan, Klaus Schulze,
 Jean-Michel Jarre, Kyle Dixon/Michael Stein's *Stranger Things* score.
@@ -23,6 +24,7 @@ python3 -m http.server 8000
 - landing page: http://localhost:8000/
 - **Arpbient**: http://localhost:8000/arpbient/
 - **Wraith**: http://localhost:8000/wraith/
+- **Techno**: http://localhost:8000/techno/
 
 Or serve an app directory directly (`cd wraith && python3 -m http.server 8000`).
 Click **PLAY** — audio requires a user gesture to start in-browser. Headphones recommended.
