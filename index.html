@@ -1,42 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
 <meta charset="UTF-8" />
-<title>Arpbient</title>
+<title>arpbient · wraith</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<link rel="stylesheet" href="style.css" />
-
-<canvas id="viz"></canvas>
-<div class="vignette"></div>
-<div class="scanlines"></div>
-
-<div class="overlay">
-  <div class="title-block">
-    <p class="title">ARPBIENT</p>
-    <p class="subtitle">endless dark synth atmospheres</p>
-  </div>
-
-  <div class="panel">
-    <button id="playBtn">PLAY</button>
-    <div class="controls">
-      <div class="control-row">
-        <label for="vol">Volume</label>
-        <input id="vol" type="range" min="0" max="1" step="0.01" value="0.8" />
-      </div>
-      <div class="control-row">
-        <label for="dark">Darkness</label>
-        <input id="dark" type="range" min="0" max="1" step="0.01" value="0.5" />
-      </div>
-      <div class="control-row">
-        <label for="dens">Density</label>
-        <input id="dens" type="range" min="0" max="1" step="0.01" value="0.6" />
-      </div>
-      <div class="control-row">
-        <label for="tempo">Tempo</label>
-        <input id="tempo" type="range" min="50" max="100" step="1" value="76" />
-      </div>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%23050807'/%3E%3Ccircle cx='5' cy='8' r='3' fill='none' stroke='%23c6ff3d' stroke-width='1.4'/%3E%3Ccircle cx='11' cy='8' r='3' fill='none' stroke='%23d92b2b' stroke-width='1.4'/%3E%3C/svg%3E" />
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; display: grid; place-items: center;
+    background: #050807; color: #cfd8d3;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  .wrap { text-align: center; padding: 2rem; max-width: 680px; }
+  h1 {
+    margin: 0 0 0.6rem; font-weight: 400; font-size: 0.95rem;
+    letter-spacing: 0.4em; text-transform: uppercase; color: #6f7f78;
+  }
+  .sub { margin: 0 0 3rem; font-size: 0.82rem; color: #55635d; line-height: 1.6; }
+  .cards { display: flex; gap: 1.5rem; justify-content: center; flex-wrap: wrap; }
+  a.card {
+    display: block; width: 240px; padding: 2rem 1.5rem; text-decoration: none;
+    background: #080d0b; border: 1px solid #1c2622; color: #cfd8d3;
+    transition: border-color 0.25s, box-shadow 0.25s, transform 0.25s;
+  }
+  a.card:hover { transform: translateY(-4px); }
+  a.card h2 { margin: 0; font-size: 1.25rem; font-weight: 500; letter-spacing: 0.3em; }
+  a.card p { margin: 0.9rem 0 0; font-size: 0.76rem; line-height: 1.55; color: #7d8c85; }
+  #arpbient-card h2 { color: #c6ff3d; }
+  #arpbient-card:hover { border-color: #c6ff3d; box-shadow: 0 0 34px rgba(198, 255, 61, 0.12); }
+  #wraith-card h2 { color: #d92b2b; }
+  #wraith-card:hover { border-color: #d92b2b; box-shadow: 0 0 34px rgba(217, 43, 43, 0.16); }
+  .foot { margin: 3rem 0 0; font-size: 0.7rem; color: #45524c; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Generative Music Engines</h1>
+    <p class="sub">two self-contained engines in one repository<br/>
+    Web Audio · no samples · no build step · no dependencies</p>
+    <div class="cards">
+      <a class="card" id="arpbient-card" href="arpbient/">
+        <h2>ARPBIENT</h2>
+        <p>dark-ambient — Juno pads, arpeggios, resonant bass.
+        structured movements, endless drift.</p>
+      </a>
+      <a class="card" id="wraith-card" href="wraith/">
+        <h2>WRAITH</h2>
+        <p>horror — drone, organ swells, dissonant stabs, eerie bells.
+        it builds, detonates, and never repeats the same way twice.</p>
+      </a>
     </div>
-    <div id="status"></div>
+    <p class="foot">headphones recommended</p>
   </div>
-</div>
-
-<div class="hint">click play and let it run &middot; headphones recommended &middot; it never repeats the same way twice</div>
-
-<script type="module" src="js/main.js"></script>
+</body>
+</html>
