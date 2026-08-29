@@ -17,6 +17,12 @@ export class Visualizer {
   }
 
   start() {
+    // Idempotent: cancel any existing loop first so repeated play/stop cycles
+    // don't stack multiple rAF loops (each of which would keep drawing).
+    if (this._raf) {
+      cancelAnimationFrame(this._raf);
+      this._raf = null;
+    }
     const loop = () => {
       this._draw();
       this._raf = requestAnimationFrame(loop);

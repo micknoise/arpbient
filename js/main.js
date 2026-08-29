@@ -6,6 +6,7 @@ const playBtn = document.getElementById('playBtn');
 const volSlider = document.getElementById('vol');
 const dreadSlider = document.getElementById('dread');
 const tensionSlider = document.getElementById('tension');
+const bassSlider = document.getElementById('bass');
 const tempoSlider = document.getElementById('tempo');
 const statusEl = document.getElementById('status');
 const canvas = document.getElementById('viz');
@@ -30,6 +31,7 @@ function init() {
   core.setMasterVolume(parseFloat(volSlider.value));
   conductor.setDarknessOverride(parseFloat(dreadSlider.value));
   conductor.setDensityOverride(parseFloat(tensionSlider.value));
+  conductor.setBassDensityOverride(parseFloat(bassSlider.value));
   conductor.setTempo(parseFloat(tempoSlider.value));
 }
 
@@ -44,6 +46,7 @@ playBtn.addEventListener('click', async () => {
     updateStatus();
   } else {
     conductor.stop();
+    viz.stop();
     await core.stop();
     playBtn.textContent = 'PLAY';
   }
@@ -60,6 +63,9 @@ dreadSlider.addEventListener('input', (e) => {
 });
 tensionSlider.addEventListener('input', (e) => {
   if (conductor) conductor.setDensityOverride(parseFloat(e.target.value));
+});
+bassSlider.addEventListener('input', (e) => {
+  if (conductor) conductor.setBassDensityOverride(parseFloat(e.target.value));
 });
 tempoSlider.addEventListener('input', (e) => {
   if (conductor) {

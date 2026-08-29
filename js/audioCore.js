@@ -38,17 +38,22 @@ export class AudioCore {
     this.analyser.fftSize = 2048;
     this.masterGain.connect(this.analyser);
 
-    // Reverb send/return — a darker, longer "cellar/cathedral" tail.
+    // Reverb send/return — a darker, longer "cellar/cathedral" tail. The
+    // impulse response already carries its own frequency-dependent decay
+    // (highs die faster), so this lowpass only needs to be a gentle guard
+    // against the brightest tails, not the main darkening.
     this.reverbSend = ctx.createGain();
     this.reverbSend.gain.value = 1;
     this.convolver = ctx.createConvolver();
-    this.convolver.buffer = createReverbImpulse(ctx, 6.0, 3.1);
+    this.convolver.buffer = createReverbImpulse(ctx, 5.0, 2.8);
     this.reverbDark = ctx.createBiquadFilter();
     this.reverbDark.type = 'lowpass';
-    this.reverbDark.frequency.value = 2400;
-    this.reverbDark.Q.value = 0.3;
+    this.reverbDark.frequency.value = 4200;
+    this.reverbDark.Q.value = 0.4;
     this.reverbReturn = ctx.createGain();
-    this.reverbReturn.gain.value = 0.62;
+    // A coherent, normalized tail is louder than the old white-noise decay —
+    // keep the return modest so it washes the mix rather than masking it.
+    this.reverbReturn.gain.value = 0.5;
     this.reverbSend.connect(this.convolver);
     this.convolver.connect(this.reverbDark);
     this.reverbDark.connect(this.reverbReturn);
@@ -100,12 +105,23 @@ export class AudioCore {
     g.connect(this.gritSend);
   }
 
+  // The user's chosen volume (0..1), applied at a 0.85 master headroom.
+  _volume = 0.8;
+
   async start() {
+    // Cancel any pending suspend from a recent stop() — otherwise a quick
+    // stop→play would get the context yanked out from under the new playback.
+    if (this._suspendTimer) {
+      clearTimeout(this._suspendTimer);
+      this._suspendTimer = null;
+    }
     if (this.ctx.state === 'suspended') await this.ctx.resume();
     const now = this.ctx.currentTime;
     this.masterGain.gain.cancelScheduledValues(now);
     this.masterGain.gain.setValueAtTime(this.masterGain.gain.value, now);
-    this.masterGain.gain.linearRampToValueAtTime(0.85, now + 3.5);
+    // Ramp to the user's volume (not a hard-coded value) so the slider's
+    // setting survives the fade-in.
+    this.masterGain.gain.linearRampToValueAtTime(this._volume * 0.85, now + 3.5);
   }
 
   async stop() {
@@ -113,12 +129,16 @@ export class AudioCore {
     this.masterGain.gain.cancelScheduledValues(now);
     this.masterGain.gain.setValueAtTime(this.masterGain.gain.value, now);
     this.masterGain.gain.linearRampToValueAtTime(0.0001, now + 2.5);
-    setTimeout(() => {
+    // Suspend after the fade to save CPU, but track the timer so start() can
+    // cancel it if the user resumes before it fires.
+    this._suspendTimer = setTimeout(() => {
+      this._suspendTimer = null;
       if (this.ctx.state === 'running') this.ctx.suspend();
     }, 2700);
   }
 
   setMasterVolume(v) {
+    this._volume = v;
     const now = this.ctx.currentTime;
     this.masterGain.gain.setTargetAtTime(Math.max(0.0001, v * 0.85), now, 0.3);
   }

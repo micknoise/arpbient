@@ -35,7 +35,11 @@ export class DroneLayer {
     audioCore.connectLayerOutput(this.output, { reverbAmount });
     audioCore.connectGrit(this.output, 0.12);
 
-    // Slow "breathing" LFO on the breath gain.
+    // Slow "breathing" LFO on the breath gain. Started once here for the
+    // context's lifetime (like the organ/texture LFOs) and never stopped — a
+    // Web Audio oscillator CANNOT be started again once stopped, so reusing
+    // these across start()/stop() would throw on the second play and wedge
+    // the whole engine.
     this.ampLfo = ctx.createOscillator();
     this.ampLfo.type = 'sine';
     this.ampLfo.frequency.value = 0.04;
@@ -43,6 +47,7 @@ export class DroneLayer {
     this.ampLfoDepth.gain.value = 0.25;
     this.ampLfo.connect(this.ampLfoDepth);
     this.ampLfoDepth.connect(this.breath.gain);
+    this.ampLfo.start();
 
     // Slow pitch-creep LFO (in cents) shared by every voice's detune.
     this.pitchLfo = ctx.createOscillator();
@@ -50,6 +55,7 @@ export class DroneLayer {
     this.pitchLfo.frequency.value = 0.02;
     this.pitchLfoDepth = ctx.createGain();
     this.pitchLfoDepth.gain.value = 6;
+    this.pitchLfo.start();
 
     this.voices = []; // { oscA, oscB, gain, offset }
     this.saw = null;
@@ -64,9 +70,9 @@ export class DroneLayer {
     this.started = true;
     this.baseMidi = baseMidi;
     this.interval = interval;
+    // The LFOs are already running (started once in the constructor); only
+    // the voices are (re)built here.
     this._buildVoices();
-    this.ampLfo.start();
-    this.pitchLfo.start();
   }
 
   _buildVoices() {
@@ -120,8 +126,9 @@ export class DroneLayer {
       v.oscB.stop();
     });
     if (this.saw) this.saw.stop();
-    try { this.ampLfo.stop(); } catch (e) { /* already stopped */ }
-    try { this.pitchLfo.stop(); } catch (e) { /* already stopped */ }
+    // The LFOs keep running (they're started once for the context's life and
+    // cannot be re-started after being stopped) — with no voices connected
+    // they're inert, and the next start() rebuilds fresh voices onto them.
     this.voices = [];
   }
 

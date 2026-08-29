@@ -1,12 +1,18 @@
-# Arpbient
+# Wraith
 
-An endless, generative dark-ambient synth engine for the browser. Juno-60/ARP-Odyssey-style
-pads and arpeggios, a punchy resonant bass ostinato, slow filter-LFO movement, and a
-structured "movement → ending → movement" form, all synthesized live with the Web Audio API.
+An endless, generative **horror** music engine for the browser. Carpenter-esque: a sub-octave
+drone bed, hollow organ swells, dissonant stabs, a sparse defiant bass melody, metallic "eerie
+melody" bells, a forever-rising Shepard dread glide, and ambient texture punctuation (scrape,
+creak, crackle, wind) — all synthesized live with the Web Audio API.
 No samples, no build step, no dependencies.
 
-Reference points: John Carpenter, early Gary Numan, Klaus Schulze, Jean-Michel Jarre,
-Kyle Dixon/Michael Stein's *Stranger Things* score.
+It plays in **movements**: each one is a short, distinct piece (~one minute) with its own key,
+mode, tempo, mix character and bass-line density. Tension builds through the movement, it
+**detonates** in a terminating flourish (full-band stinger + sub drop + bell run), exhales into a
+long lonely tail — then a fresh movement begins.
+
+Reference points: John Carpenter, the *Halloween* score, early Gary Numan, Kyle
+Dixon/Michael Stein's *Stranger Things* score.
 
 ## Running it standalone
 
@@ -18,44 +24,71 @@ python3 -m http.server 8000
 # open http://localhost:8000/
 ```
 
-Click **PLAY** (audio requires a user gesture to start in-browser). The **Volume /
-Darkness / Density / Tempo** sliders are live macro controls; everything else — chord
-progression, bass pattern, texture drift, when the next ending happens — is generated on
-its own.
+Click **PLAY** (audio requires a user gesture to start in-browser). The **Volume / Dread /
+Tension / Bass / Tempo** sliders are live macro controls:
+
+| Slider | What it does |
+| --- | --- |
+| **Volume** | master level |
+| **Dread** | dissonance, grit and overall darkness |
+| **Tension** | how fast the texture thickens and the build gets loud |
+| **Bass** | temporal density of the bass melody — sparse (1–2 notes / 10 s) to dense (5–8 / 10 s). Each movement picks a density around this value, so it's both a per-movement feature and a live control |
+| **Tempo** | center for the tempo; each movement settles within ~±7 bpm of it |
+
+Everything else — key, mode, progression, when the next ending happens, the mix balance — is
+generated on its own. Headphones recommended.
 
 ## How it's structured
 
 | File | Role |
 | --- | --- |
-| `js/audioCore.js` | `AudioContext`, master bus: saturation → limiter → master gain, plus shared reverb and delay send/returns |
-| `js/theory.js` | Modal scales, diatonic chord building, voicings, arpeggio note pools |
-| `js/effects.js` | Chorus, algorithmic reverb impulse, feedback delay |
-| `js/pads.js` | `PadLayer` — two alternating pad voices (Juno-style saws+sub, and a spookier FM/glass bell texture), shared filter LFO, gate stage |
-| `js/arp.js` | `ArpLayer` — plucked arpeggiator voice with its own filter envelope |
-| `js/bass.js` | `BassLayer` — punchy resonant mono bass pluck |
-| `js/conductor.js` | `Conductor` — the composer: harmony, scheduling, macro drift, movement/ending structure |
+| `js/audioCore.js` | `AudioContext`, master bus: sum → saturation → limiter → master gain, plus shared reverb, delay and a heavy "grit" send/return |
+| `js/theory.js` | Dark modal scales, diatonic chord building, dissonant clusters, drone/bell note pools |
+| `js/effects.js` | Saturation curves, chorus, a **synthesized** reverb impulse (early reflections + dB-linear decay + spectral tilt), feedback delay, noise beds |
+| `js/drone.js` | `DroneLayer` — the always-present sub-octave pressure bed (detuned sine pairs, breathing LFO, optional saw body) |
+| `js/organ.js` | `OrganLayer` — hollow swells of detuned voices with a slow filter LFO |
+| `js/stabs.js` | `StabLayer` — dissonant "scream" clusters through a resonant filter + grit bus |
+| `js/metallic.js` | `MetallicLayer` — inharmonic bell/strike and ring voices for the high "eerie melody" |
+| `js/bass.js` | `BassLayer` — the low, resonant, long-decay bass melody voice (+ sub drop for the stinger) |
+| `js/shepard.js` | `ShepardLayer` — the "forever rising" dread glissando |
+| `js/texture.js` | `TextureLayer` — continuous wind bed + scrape / creak / crackle punctuation |
+| `js/conductor.js` | `Conductor` — the composer: harmony, scheduling, tension, movement/ending structure |
 | `js/visualizer.js` | Canvas oscilloscope, purely cosmetic |
 | `js/main.js` | Wires the DOM controls to `AudioCore`/`Conductor` for the standalone page |
 
-`Conductor` is the only piece that knows about musical time. Everything else (`PadLayer`,
-`ArpLayer`, `BassLayer`) is a dumb, stateless-ish voice factory: you hand it a MIDI note and
-a time and it plays a note. That split is what makes embedding straightforward — see below.
+`Conductor` is the only piece that knows about musical time. Everything else is a dumb voice
+factory: you hand it a MIDI note and a time and it plays. That split is what makes embedding
+straightforward — see below.
 
 ### Musical structure
 
-The piece runs in **movements**: a fixed key, mode, and tempo, with chords advancing every
-4 bars over a narrow, repetitive progression. Roughly every 24–40 bars, or whenever
-`triggerEnding()` is called, the movement **ends**: a huge multi-octave stab fires across
-pad + bass + arp on the tonic chord, decays away, and leaves a single sustained pad ringing
-out for 8–14 seconds. A new movement then begins — new tempo, new root key, chords resume.
-Tempo and key only ever change at this boundary, never mid-movement.
+The piece runs in **movements**, roughly a minute long:
 
-A slow `intensity` value randomly surges and decays over the course of a movement, driving
-resonance, arp/bass note density, and filter-LFO speed up and down without touching tempo. The
-pad sits low in the mix by default and rides up with `intensity`, and switches to the spookier
-glass voice around those tension surges, rather than sitting loud under everything all the time.
-A separate `timbre` value slowly drifts the pad/arp oscillator balance and detune width so the
-piece travels through different textures over time.
+1. **Build** — a fixed key, mode and progression (baroque minor: i, iv, V, bVI — the insistent
+   i/bVI horror signature) hold steady while tension rises bar by bar. The drone rides up, organ
+   swells brighten, stabs and the high bells thicken, texture punctuation quickens, and a
+   Shepard dread glide climbs underneath. At most one mid-movement "breath" (a withheld, slow
+   release) eases the tension part-way before it builds again.
+2. **Ending** — at the movement's bar, a terminating flourish: a full-band dissonant stinger +
+   sub drop, a bell-pool flourish run (ascending / descending / arch / scattered), then a long,
+   lonely swell over the sunk drone floor.
+3. **New movement** — new key, mode, progression, tempo (within the slider's center), bass
+   density and mix character. Tempo and key only ever change at this boundary, never mid-movement.
+
+The **bass line** is a sparse minor *melody*, not an ostinato: each bar's note count is derived
+from the movement's density (1.5–8 notes per 10 s), the pitches come from an open-minor pool
+(root, 5th, octave, minor 3rd, b2, 7th) with short-term melodic memory, and the hits land on
+weighted eighth-note slots. It moves and changes from bar to bar instead of repeating a fixed
+pattern.
+
+### Reverb
+
+There's no reverb *sample*. The impulse response is **synthesized at startup**
+(`createReverbImpulse` in `js/effects.js`): early-reflection taps for a defined room "front",
+an exponential (linear-in-dB) late decay, and a one-pole spectral tilt so highs die faster than
+low — with independent noise and tails per channel for width. If you want a different space,
+edit its `duration` / `rt60` arguments in `js/audioCore.js`, or pass your own buffer to
+`core.convolver.buffer`.
 
 ## Embedding it in another app
 
@@ -87,36 +120,36 @@ conductor.stop();
 await core.stop();         // ramps master gain out, then suspends the context
 ```
 
+Both are safe to call repeatedly and in quick succession (stop → play → stop → play).
+
 ### Controlling parameters
 
 These are safe to call at any time, including while it's playing:
 
 ```js
 core.setMasterVolume(0.8);          // 0..1
-conductor.setDarknessOverride(0.7); // 0..1 -- lower filter cutoffs, darker tone
-conductor.setDensityOverride(0.5);  // 0..1 -- arp note density / rest probability
-conductor.setTimbreOverride(0.3);   // 0..1 -- oscillator balance, detune width, resonance
-conductor.setTempo(90);             // BPM for the *current* movement; takes effect
-                                     // immediately, but the generative system will still
-                                     // pick a fresh tempo at the next ending
+conductor.setDarknessOverride(0.7); // 0..1 -- dissonance, grit, darkness
+conductor.setDensityOverride(0.5);  // 0..1 -- how fast the texture thickens
+conductor.setTimbreOverride(0.3);   // 0..1 -- detune width, metallic edge
+conductor.setBassDensityOverride(0.6); // 0..1 -- bass melody temporal density
+conductor.setTempo(90);             // center for the tempo; each movement settles
+                                     // within ~±7 bpm of it (clamped 46..100)
 ```
 
-Each of these sets a starting point that the generative drift will continue to wander
-away from on its own — they're overrides, not locks. If you want a parameter pinned, call
-the setter again each time its drift would otherwise move it (e.g. from an `onBar` hook).
+Each of these sets a *center* that the generative system wanders around — overrides, not
+locks. The sliders in the standalone page are wired to exactly these.
 
 ### Triggering events
 
-The only event a host can currently force is the ending:
+A host can force the current movement's ending any time:
 
 ```js
-conductor.triggerEnding(); // fires the big stab + fade-to-pad-alone at the next bar,
-                            // then starts a fresh movement (new key + tempo)
+conductor.triggerEnding();  // the terminating flourish fires at the next bar,
+                            // then a fresh movement begins (new key + tempo)
+conductor.triggerStinger(); // same thing — a convenience alias
 ```
 
-It's a no-op if an ending is already in progress. There's no minimum movement length
-enforced when called this way — you can call it as soon as `conductor.start()` returns if
-you want an ending immediately.
+Both are no-ops if an ending is already in progress.
 
 ### Listening for events
 
@@ -129,21 +162,21 @@ conductor.onBar = (barIndex) => {
 };
 
 conductor.onChord = ({ root, mode, degree, midiNotes }) => {
-  // fires every time the harmony changes (every 4 bars in normal play).
-  // midiNotes is the actual voiced pad chord for this change.
+  // fires every time the harmony changes (every ~3-6 bars in normal play).
+  // midiNotes is the actual voiced organ chord for this change.
 };
 
 conductor.onEnding = () => {
-  // fires the instant the big stab triggers -- the moment to cue a
+  // fires the instant the terminating flourish triggers -- the moment to cue a
   // scene transition, a flash, a screen shake, etc.
 };
 
-conductor.onMovementStart = ({ root, mode, bpm }) => {
-  // fires when a new movement begins after an ending -- new key and tempo.
+conductor.onMovementStart = ({ root, mode, bpm, bassDensity }) => {
+  // fires when a new movement begins after an ending -- new key, tempo, bass density.
 };
 ```
 
-Example: fade a UI element to black exactly when the ending stab hits, and back up once
+Example: fade a UI element to black exactly when the ending flourish hits, and back up once
 the new movement starts:
 
 ```js
@@ -153,10 +186,11 @@ conductor.onMovementStart = () => fadeOverlay(0, 3000); // fade back over 3s
 
 ### Reading state
 
-`conductor.root`, `.mode`, `.bpm`, `.phase` (`'normal'` or `'quiet'`), and
-`.macro` (`{ darkness, density, timbre, intensity, padLevel, arpLevel, bassLevel }`) are
-plain public fields, safe to read (not write, except via the setters above) at any time —
-useful if you'd rather poll from a render loop than use the callbacks.
+`conductor.root`, `.mode`, `.bpm`, `.phase` (`'normal'` or `'ending'`), `.tension`
+(0..1, rising through the movement), `.movementEndBar`, `.movementBassDensity`, and
+`.macro` (`{ dread, density, timbre, droneLevel, organLevel, bassLevel, metallicLevel,
+textureLevel }`) are plain public fields, safe to read (not write, except via the setters
+above) at any time — useful if you'd rather poll from a render loop than use the callbacks.
 
 ### Notes
 
@@ -164,17 +198,20 @@ useful if you'd rather poll from a render loop than use the callbacks.
   page unless you specifically want independent, unmixed audio graphs.
 - `AudioCore` exposes `core.analyser` (a standard `AnalyserNode`) if you want to drive your
   own visualization instead of `js/visualizer.js`.
-- Nothing here depends on `window` except `AudioContext`/`OfflineAudioContext` fallback
+- Nothing here depends on `window` except the `AudioContext`/`webkitAudioContext` fallback
   lookup and `devicePixelRatio` in the visualizer — the audio engine itself has no DOM
   dependency and could be used from a non-browser Web Audio host (e.g. Electron) unchanged.
 
 ## Branches
 
-- `main` — current version, described above.
+- `main` — **Arpbient**, the original Juno-style dark-ambient version (pads + arpeggios).
 - `v1-ambient-wash` — first working version: full arpeggiator, wind + water texture beds,
   slow drone bass.
 - `v2-carpenter-sinister` — an experiment narrowing the harmony to a strict minor-key i/bVI
-  cell and replacing the arp with bright stab hits. Superseded by `main`, kept for reference.
+  cell and replacing the arp with bright stab hits.
+- `v3-good-bass` — bass-voice development.
+- `v4-horror` — **Wraith** (this branch): the full horror engine — drone, organ, stabs,
+  metallic bells, Shepard glide, texture, bass melody, movement/ending structure.
 
 ## License
 

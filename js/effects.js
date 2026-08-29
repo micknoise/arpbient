@@ -64,19 +64,79 @@ export function createChorus(ctx, { rateL = 0.17, rateR = 0.21, depth = 0.0035, 
   return { input, output };
 }
 
-// Synthesizes a dark, decaying-noise impulse response for ConvolverNode --
-// no external audio asset needed.
-export function createReverbImpulse(ctx, duration = 4.5, decay = 3.2) {
+// Synthesizes a convincing reverb impulse response for ConvolverNode with no
+// external audio asset. The old version was plain decaying white noise, which
+// reads as a hiss burst, not a space. This one has the three things that make
+// a reverb sound "real":
+//   * EARLY REFLECTIONS — a few discrete, decaying taps in the first ~80 ms
+//     give the room a defined "front" before the wash.
+//   * NATURAL DECAY — the late field decays exponentially (linear in dB),
+//     `2^(-53·t/RT60)`, so the tail fades the way an actual room does.
+//   * FREQUENCY-DEPENDENT DECAY — a one-pole lowpass over the late noise so
+//     high frequencies die faster than low ones, with a slightly different
+//     corner per channel.
+// Left and right use independent noise and slightly different tails/tilts for
+// a wider, less "centered" image. The result is peak-normalized so the
+// convolver doesn't pump the limiter.
+export function createReverbImpulse(ctx, duration = 5.0, rt60 = 2.8) {
   const rate = ctx.sampleRate;
   const length = Math.floor(rate * duration);
   const impulse = ctx.createBuffer(2, length, rate);
+
+  // One-pole lowpass coefficient for a given -3 dB corner frequency.
+  const pole = (cornerHz) => 1 - Math.exp((-2 * Math.PI * cornerHz) / rate);
+
   for (let ch = 0; ch < 2; ch++) {
     const data = impulse.getChannelData(ch);
+    const chRt60 = rt60 * (ch === 0 ? 1.0 : 0.92); // L/R tail mismatch
+    const a = pole(ch === 0 ? 2600 : 2100);        // L/R tilt mismatch
+
+    // --- Late field: exponentially decaying (linear in dB) tilted noise. ---
+    let lp = 0;
     for (let i = 0; i < length; i++) {
-      const t = i / length;
-      data[i] = (Math.random() * 2 - 1) * Math.pow(1 - t, decay);
+      const secs = i / rate;
+      const amp = Math.pow(2, (-53 * secs) / chRt60);
+      const white = Math.random() * 2 - 1;
+      lp += a * (white - lp); // one-pole lowpass = spectral tilt
+      const earlyFade = Math.min(1, secs / 0.02); // don't clash with the dry hit
+      data[i] = lp * amp * earlyFade;
+    }
+
+    // --- Early reflections: scattered discrete taps in the first ~80 ms. ---
+    const nEr = 9;
+    for (let k = 0; k < nEr; k++) {
+      const frac = (k + 0.5) / nEr;
+      const delaySec = 0.004 + frac * 0.078;
+      const idx = Math.floor(delaySec * rate);
+      if (idx >= length) continue;
+      const amp = 0.9 * Math.pow(2, (-30 * delaySec) / chRt60) * (1 - 0.5 * frac);
+      const pan = Math.random(); // per-reflection L/R split
+      const gainCh = ch === 0 ? Math.sqrt(1 - pan) : Math.sqrt(pan);
+      // A short noise burst (~4 ms) reads as a reflection, not a click.
+      const burst = Math.floor(rate * 0.004);
+      for (let j = 0; j < burst && idx + j < length; j++) {
+        data[idx + j] += (Math.random() * 2 - 1) * amp * gainCh * (1 - j / burst);
+      }
     }
   }
+
+  // --- Peak-normalize across both channels to a comfortable ~0.5 peak. ---
+  let peak = 0;
+  for (let ch = 0; ch < 2; ch++) {
+    const d = impulse.getChannelData(ch);
+    for (let i = 0; i < length; i++) {
+      const v = Math.abs(d[i]);
+      if (v > peak) peak = v;
+    }
+  }
+  if (peak > 0) {
+    const scale = 0.5 / peak;
+    for (let ch = 0; ch < 2; ch++) {
+      const d = impulse.getChannelData(ch);
+      for (let i = 0; i < length; i++) d[i] *= scale;
+    }
+  }
+
   return impulse;
 }
 
