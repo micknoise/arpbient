@@ -1,4 +1,5 @@
-import { createSaturationCurve, createReverbImpulse, createDelay } from './effects.js';
+import { createSaturationCurve, createDelay } from './effects.js';
+import { Reverb } from './reverb.js';
 
 // Owns the AudioContext and the master bus: dry sum -> saturation ->
 // limiter -> master gain -> destination, plus shared reverb/delay sends and
@@ -38,25 +39,17 @@ export class AudioCore {
     this.analyser.fftSize = 2048;
     this.masterGain.connect(this.analyser);
 
-    // Reverb send/return — a darker, longer "cellar/cathedral" tail. The
-    // impulse response already carries its own frequency-dependent decay
-    // (highs die faster), so this lowpass only needs to be a gentle guard
-    // against the brightest tails, not the main darkening.
+    // Reverb send/return — a procedural "cellar" space (no samples): the
+    // Reverb module synthesizes its own impulse (early reflections +
+    // dB-linear decay + per-channel spectral tilt). The return is kept
+    // generous so the wash is clearly present in the mix, not buried.
     this.reverbSend = ctx.createGain();
     this.reverbSend.gain.value = 1;
-    this.convolver = ctx.createConvolver();
-    this.convolver.buffer = createReverbImpulse(ctx, 5.0, 2.8);
-    this.reverbDark = ctx.createBiquadFilter();
-    this.reverbDark.type = 'lowpass';
-    this.reverbDark.frequency.value = 4200;
-    this.reverbDark.Q.value = 0.4;
+    this.reverb = new Reverb(ctx, { seconds: 5, decay: 2.8, early: 0.7, tilt: 2600 });
     this.reverbReturn = ctx.createGain();
-    // A coherent, normalized tail is louder than the old white-noise decay —
-    // keep the return modest so it washes the mix rather than masking it.
-    this.reverbReturn.gain.value = 0.5;
-    this.reverbSend.connect(this.convolver);
-    this.convolver.connect(this.reverbDark);
-    this.reverbDark.connect(this.reverbReturn);
+    this.reverbReturn.gain.value = 0.7;
+    this.reverbSend.connect(this.reverb.input);
+    this.reverb.output.connect(this.reverbReturn);
     this.reverbReturn.connect(this.busSum);
 
     // Delay send/return — longer, darker, more cavernous repeats.

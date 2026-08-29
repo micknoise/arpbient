@@ -1,14 +1,14 @@
 # Wraith
 
 An endless, generative **horror** music engine for the browser. Carpenter-esque: a sub-octave
-drone bed, hollow organ swells, dissonant stabs, a sparse defiant bass melody, metallic "eerie
-melody" bells, a forever-rising Shepard dread glide, and ambient texture punctuation (scrape,
-creak, crackle, wind) — all synthesized live with the Web Audio API.
+drone bed, hollow organ swells, a sparse defiant bass melody, metallic "eerie melody" bells, a
+forever-rising Shepard dread glide, and ambient texture punctuation (scrape, creak, crackle,
+wind) — all synthesized live with the Web Audio API.
 No samples, no build step, no dependencies.
 
 It plays in **movements**: each one is a short, distinct piece (~one minute) with its own key,
 mode, tempo, mix character and bass-line density. Tension builds through the movement, it
-**detonates** in a terminating flourish (full-band stinger + sub drop + bell run), exhales into a
+**detonates** in a terminating flourish (organ swell + metallic ring + sub drop + bell run), exhales into a
 long lonely tail — then a fresh movement begins.
 
 Reference points: John Carpenter, the *Halloween* score, early Gary Numan, Kyle
@@ -43,11 +43,11 @@ generated on its own. Headphones recommended.
 | File | Role |
 | --- | --- |
 | `js/audioCore.js` | `AudioContext`, master bus: sum → saturation → limiter → master gain, plus shared reverb, delay and a heavy "grit" send/return |
-| `js/theory.js` | Dark modal scales, diatonic chord building, dissonant clusters, drone/bell note pools |
-| `js/effects.js` | Saturation curves, chorus, a **synthesized** reverb impulse (early reflections + dB-linear decay + spectral tilt), feedback delay, noise beds |
+| `js/theory.js` | Dark modal scales, diatonic chord building, drone/bell note pools |
+| `js/effects.js` | Saturation curves, chorus, feedback delay, noise beds |
+| `js/reverb.js` | `Reverb` — a self-contained, **synthesized** reverb in the spirit of [simple-reverb](https://github.com/web-audio-components/simple-reverb): early reflections + dB-linear decay + spectral tilt, no samples |
 | `js/drone.js` | `DroneLayer` — the always-present sub-octave pressure bed (detuned sine pairs, breathing LFO, optional saw body) |
 | `js/organ.js` | `OrganLayer` — hollow swells of detuned voices with a slow filter LFO |
-| `js/stabs.js` | `StabLayer` — dissonant "scream" clusters through a resonant filter + grit bus |
 | `js/metallic.js` | `MetallicLayer` — inharmonic bell/strike and ring voices for the high "eerie melody" |
 | `js/bass.js` | `BassLayer` — the low, resonant, long-decay bass melody voice (+ sub drop for the stinger) |
 | `js/shepard.js` | `ShepardLayer` — the "forever rising" dread glissando |
@@ -66,11 +66,11 @@ The piece runs in **movements**, roughly a minute long:
 
 1. **Build** — a fixed key, mode and progression (baroque minor: i, iv, V, bVI — the insistent
    i/bVI horror signature) hold steady while tension rises bar by bar. The drone rides up, organ
-   swells brighten, stabs and the high bells thicken, texture punctuation quickens, and a
+   swells brighten, the high bells thicken, texture punctuation quickens, and a
    Shepard dread glide climbs underneath. At most one mid-movement "breath" (a withheld, slow
    release) eases the tension part-way before it builds again.
-2. **Ending** — at the movement's bar, a terminating flourish: a full-band dissonant stinger +
-   sub drop, a bell-pool flourish run (ascending / descending / arch / scattered), then a long,
+2. **Ending** — at the movement's bar, a terminating flourish: a hard organ swell + metallic
+   ring + sub drop, a bell-pool flourish run (ascending / descending / arch / scattered), then a long,
    lonely swell over the sunk drone floor.
 3. **New movement** — new key, mode, progression, tempo (within the slider's center), bass
    density and mix character. Tempo and key only ever change at this boundary, never mid-movement.
@@ -83,12 +83,18 @@ pattern.
 
 ### Reverb
 
-There's no reverb *sample*. The impulse response is **synthesized at startup**
-(`createReverbImpulse` in `js/effects.js`): early-reflection taps for a defined room "front",
-an exponential (linear-in-dB) late decay, and a one-pole spectral tilt so highs die faster than
-low — with independent noise and tails per channel for width. If you want a different space,
-edit its `duration` / `rt60` arguments in `js/audioCore.js`, or pass your own buffer to
-`core.convolver.buffer`.
+There's no reverb *sample* and no third-party file — `js/reverb.js` is a small, self-contained
+reverb in the spirit of
+[simple-reverb](https://github.com/web-audio-components/simple-reverb) (same API shape:
+`new Reverb(ctx, { seconds, decay })`, with the convolver exposed as both `input` and
+`output`), but instead of raw decaying noise it synthesizes a *room-sounding* impulse at
+startup: early-reflection taps for a defined space "front", an exponential (linear-in-dB) late
+decay, a one-pole spectral tilt so highs die faster than lows, and independent noise and tails
+per channel for width.
+
+To change the space, set `core.reverb.seconds` / `core.reverb.decay` (or build with your own
+`early` / `tilt` in `js/audioCore.js`). The return level is `core.reverbReturn.gain`; each
+layer's share of the send is set in its `reverbAmount` option in `js/conductor.js`.
 
 ## Embedding it in another app
 

@@ -1,6 +1,6 @@
 // Horror harmony helpers: dark modal scales, the insistent i/bVI (minor-six)
-// cell with chromatic bII / iv approaches, dissonant cluster generation for
-// stabs, low drone pitch sets, and high-register "eerie melody" bell pools.
+// cell with chromatic bII / iv approaches, low drone pitch sets, and
+// high-register "eerie melody" bell pools.
 //
 // The vocabulary here is deliberately minor-key and dissonant — no major
 // resolutions, no bright passing tones. The b2 (Phrygian) and the tritone
@@ -50,26 +50,6 @@ export function buildChord(root, mode, degree, { seventh = true, add9 = false } 
   if (seventh) tones.push(degree + 6);
   if (add9) tones.push(degree + 8);
   return tones.map((d) => root + degreeToSemitone(mode, d));
-}
-
-// A dissonant "scream" cluster for stabs: the chord's own tones plus
-// guaranteed clashes (minor 2nd, tritone, major 7th) above the chord root.
-// Always includes at least one dissonance; spreads for register.
-export function buildDissonantCluster(root, mode, degree, { size = 4, octave = 0 } = {}) {
-  const base = root + degreeToSemitone(mode, degree) + 12 * octave;
-  const chord = buildChord(root, mode, degree, { seventh: true });
-  const dissonances = [base + 1, base + 6, base + 11]; // m2, tritone, M7
-  const pool = [...chord, ...dissonances, base + 13, base + 15]; // + m9, m11
-  const unique = [...new Set(pool)].sort((a, b) => a - b);
-
-  const chosen = new Set([base]);
-  // Guarantee a dissonant pair lands in the cluster.
-  chosen.add(base + (Math.random() < 0.5 ? 1 : 6));
-  let guard = 0;
-  while (chosen.size < Math.max(size, 2) && guard++ < 60) {
-    chosen.add(unique[Math.floor(Math.random() * unique.length)]);
-  }
-  return [...chosen].sort((a, b) => a - b);
 }
 
 // Low sub-drone pitches (MIDI) for the always-present pressure bed.

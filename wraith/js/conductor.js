@@ -1,7 +1,6 @@
-import { MODES, DARK_ROOTS, PROGRESSIONS, buildChord, buildDissonantCluster, voiceChordOpen, bellPool, shepardBase, midiToFreq } from './theory.js';
+import { MODES, DARK_ROOTS, PROGRESSIONS, buildChord, voiceChordOpen, bellPool, shepardBase, midiToFreq } from './theory.js';
 import { DroneLayer } from './drone.js';
 import { OrganLayer } from './organ.js';
-import { StabLayer } from './stabs.js';
 import { MetallicLayer } from './metallic.js';
 import { TextureLayer } from './texture.js';
 import { ShepardLayer } from './shepard.js';
@@ -16,18 +15,18 @@ function clamp(v, lo, hi) {
 }
 
 // Generative horror composer. Owns musical time via a lookahead scheduler and
-// drives seven voice layers around MOVEMENTS:
+// drives six voice layers around MOVEMENTS:
 //
 //   normal (build) … (one optional mid-movement "breath") …
 //   ending (loud flourish + long tail)  →  normal …
 //
 // A movement is one short piece (~one minute): it holds a single key, mode,
 // progression, tempo, mix character and bass-line density steady, while
-// tension rises bar by bar (drone rides up, organ swells brighten, stabs and
-// the high "eerie melody" thicken, texture punctuation quickens, and a
-// Shepard "forever-rising" dread glide climbs underneath). It ends in a
-// terminating flourish — a full-band dissonant stinger + sub drop + a
-// bell-pool run — followed by a long, lonely swell over the low drone floor.
+// tension rises bar by bar (drone rides up, organ swells brighten, the high
+// "eerie melody" and texture punctuation thicken, and a Shepard
+// "forever-rising" dread glide climbs underneath). It ends in a terminating
+// flourish — a hard organ swell + sub drop + a bell-pool run — followed by a
+// long, lonely swell over the low drone floor.
 // Then a fresh movement begins with a new key, tempo, character and bass
 // density, so the session reads as a series of distinct short pieces.
 //
@@ -52,7 +51,6 @@ export class Conductor {
 
     this.drone = new DroneLayer(this.ctx, audioCore, { reverbAmount: 0.1 });
     this.organ = new OrganLayer(this.ctx, audioCore, { reverbAmount: 0.5, delayAmount: 0.05 });
-    this.stabs = new StabLayer(this.ctx, audioCore, { reverbAmount: 0.5, delayAmount: 0.1, gritAmount: 0.5 });
     this.metallic = new MetallicLayer(this.ctx, audioCore, { reverbAmount: 0.8, delayAmount: 0.3 });
     this.texture = new TextureLayer(this.ctx, audioCore, { reverbAmount: 0.85 });
     this.shepard = new ShepardLayer(this.ctx, audioCore, { reverbAmount: 0.7 });
@@ -176,14 +174,7 @@ export class Conductor {
       if (ev) this._fireBassNote(ev, time);
     }
 
-    // Dissonant stabs — density rises with tension, on beats plus off-beat menace.
     const isBeat = barStep % this.stepsPerBeat === 0;
-    if (isBeat) {
-      const chance = 0.04 + this.tension * 0.3 + this.macro.density * 0.08;
-      if (Math.random() < chance) this._fireStab(time);
-    } else if (Math.random() < 0.004 + this.tension * 0.02) {
-      this._fireStab(time);
-    }
 
     // Sparse high "eerie melody" — a few bell notes per bar at most.
     if (isBeat && (barStep === 0 || barStep === this.stepsPerBeat * 2)) {
@@ -289,16 +280,6 @@ export class Conductor {
       if (r <= 0) return semi;
     }
     return pool[pool.length - 1][0];
-  }
-
-  _fireStab(time) {
-    const cluster = buildDissonantCluster(this.root, this.mode, this.currentDegree, { size: 3 + Math.floor(this.tension * 3) });
-    this.stabs.playStab(cluster, time, {
-      cutoffBase: 3200 + this.macro.dread * 2500 + this.tension * 1800,
-      q: 4 + this.macro.dread * 5,
-      velocity: 0.18 + this.tension * 0.2,
-      decay: 0.3 + Math.random() * 0.3,
-    });
   }
 
   _fireBell(time) {
@@ -419,9 +400,7 @@ export class Conductor {
     const chord = buildChord(this.root, this.mode, degree, { seventh: false });
     const notes = voiceChordOpen(this.root, chord);
 
-    // The detonation: full-band dissonant stinger + sub drop + texture snap.
-    this.stabs.playStab(buildDissonantCluster(this.root, this.mode, degree, { size: 6 }), time, { cutoffBase: 6000, q: 6, velocity: 0.5, decay: 0.6 });
-    this.stabs.playStab(buildDissonantCluster(this.root, this.mode, degree, { size: 5, octave: 1 }), time + 0.03, { cutoffBase: 4800, q: 6, velocity: 0.35, decay: 0.55 });
+    // The detonation: a hard organ swell + metallic ring + sub drop + texture snap.
     this.organ.playSwell(notes, time, { attack: 0.06, hold: 1.6, release: 3.5, cutoff: 2400, velocity: 0.32, detune: 6 });
     this.metallic.ringAccent(time, { freq: midiToFreq(this.root + 24), ratio: 3.1, decay: 1.5, velocity: 0.18 });
     this.bass.subDrop(this.root - 24, time, { steps: 7, duration: 1.1, velocity: 0.7 });

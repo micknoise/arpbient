@@ -6,7 +6,7 @@ with the Web Audio API. No samples, no build step, no dependencies.
 | App | Character | Where to find it |
 | --- | --- | --- |
 | **Arpbient** | dark-ambient: Juno-60/ARP-Odyssey pads and arpeggios, a resonant bass ostinato, movement → ending form | [`arpbient/`](arpbient/) |
-| **Wraith** | horror: sub-octave drone, hollow organ swells, dissonant stabs, metallic "eerie melody", Shepard dread glide, sparse bass melody — it builds, detonates, and starts over in a new key | [`wraith/`](wraith/) |
+| **Wraith** | horror: sub-octave drone, hollow organ swells, metallic "eerie melody", Shepard dread glide, sparse bass melody — it builds, detonates, and starts over in a new key | [`wraith/`](wraith/) |
 
 Reference points: John Carpenter, the *Halloween* score, early Gary Numan, Klaus Schulze,
 Jean-Michel Jarre, Kyle Dixon/Michael Stein's *Stranger Things* score.
