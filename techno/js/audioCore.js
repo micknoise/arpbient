@@ -122,6 +122,15 @@ export class AudioCore {
     this.saturation.curve = createSaturationCurve(amount);
   }
 
+  // Live return levels -- the "space" sliders ride the wet returns.
+  setReverbReturn(v) {
+    this.reverbReturn.gain.setTargetAtTime(Math.max(0, v), this.ctx.currentTime, 0.4);
+  }
+
+  setDelayReturn(v) {
+    this.delayReturn.gain.setTargetAtTime(Math.max(0, v), this.ctx.currentTime, 0.4);
+  }
+
   // Re-routes the delay time (sync to the movement's tempo) and depth.
   setDelayTime(seconds) {
     this.delayBus.setDelayTime(seconds);

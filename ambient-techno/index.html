@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Ambient Techno</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%2305070f'/%3E%3Cpath d='M2 10 Q5 5 8 8 T14 7' fill='none' stroke='%235b8cff' stroke-width='1.4' stroke-linecap='round'/%3E%3Ccircle cx='12' cy='11' r='1.6' fill='%2337d5c0'/%3E%3C/svg%3E" />
+<link rel="stylesheet" href="style.css" />
+<link rel="stylesheet" href="theme.css" />
+</head>
+<body>
+  <canvas id="viz"></canvas>
+  <div class="vignette"></div>
+  <div class="scanlines"></div>
+
+  <div class="overlay">
+    <div class="title-block">
+      <p class="title">AMBIENT&nbsp;TECHNO</p>
+      <p class="subtitle">slow, spacious, hypnotic · sparse drums, deep pads</p>
+    </div>
+
+    <div class="panel">
+      <button id="playBtn">PLAY</button>
+      <div class="controls">
+        <div class="control-row">
+          <label for="vol">Volume</label>
+          <input id="vol" type="range" min="0" max="1" step="0.01" value="0.8" />
+        </div>
+        <div class="control-row">
+          <label for="space">Space</label>
+          <input id="space" type="range" min="0" max="1" step="0.01" value="0.7" />
+        </div>
+        <div class="control-row">
+          <label for="dens">Density</label>
+          <input id="dens" type="range" min="0" max="1" step="0.01" value="0.45" />
+        </div>
+        <div class="control-row">
+          <label for="warm">Warmth</label>
+          <input id="warm" type="range" min="0" max="1" step="0.01" value="0.6" />
+        </div>
+        <div class="control-row">
+          <label for="tempo">Tempo</label>
+          <input id="tempo" type="range" min="90" max="120" step="1" value="108" />
+        </div>
+      </div>
+      <div id="status"></div>
+    </div>
+  </div>
+
+  <div class="hint">click play and let it run &middot; headphones recommended &middot; it never repeats the same way twice</div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
