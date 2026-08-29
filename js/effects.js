@@ -102,3 +102,35 @@ export function createDelay(ctx, { time = 0.55, feedback = 0.38, cutoff = 2200 }
 
   return { input, output, delayNode: delay };
 }
+
+// Generates a stereo noise buffer (no external asset needed). type:
+// 'white' (crackle/hiss), 'brown' (low rumble/wind bed), or 'pink' (a middle
+// path for scrape/texture). Loopable.
+export function createNoiseBuffer(ctx, seconds = 4, type = 'brown') {
+  const rate = ctx.sampleRate;
+  const len = Math.max(1, Math.floor(rate * seconds));
+  const buf = ctx.createBuffer(2, len, rate);
+  for (let ch = 0; ch < 2; ch++) {
+    const d = buf.getChannelData(ch);
+    if (type === 'white') {
+      for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * 0.9;
+    } else if (type === 'brown') {
+      let last = 0;
+      for (let i = 0; i < len; i++) {
+        const white = Math.random() * 2 - 1;
+        last = (last + 0.012 * white) / 1.012;
+        d[i] = last * 3.5; // brown noise is quiet; boost for a usable level
+      }
+    } else { // 'pink' — cheap Voss-style, sits between white and brown
+      let b0 = 0, b1 = 0, b2 = 0;
+      for (let i = 0; i < len; i++) {
+        const white = Math.random() * 2 - 1;
+        b0 = 0.99886 * b0 + white * 0.0555179;
+        b1 = 0.99332 * b1 + white * 0.0750759;
+        b2 = 0.969 * b2 + white * 0.153852;
+        d[i] = (b0 + b1 + b2 + white * 0.5362) * 0.2;
+      }
+    }
+  }
+  return buf;
+}

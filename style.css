@@ -1,13 +1,13 @@
 :root {
   color-scheme: dark;
-  --bg: #06040c;
-  --panel: rgba(12, 9, 20, 0.72);
-  --border: rgba(122, 47, 240, 0.35);
-  --accent: #ff2d55;
-  --accent2: #7a2ff0;
-  --accent3: #22d3c4;
-  --text: #e7e2f5;
-  --text-dim: #8f88ab;
+  --bg: #050807;
+  --panel: rgba(10, 14, 12, 0.72);
+  --border: rgba(127, 191, 63, 0.35);
+  --accent: #c6ff3d; /* sickly green */
+  --accent2: #5a8f2e; /* mossy green */
+  --accent3: #d92b2b; /* blood red */
+  --text: #d5e6cf;
+  --text-dim: #7f9179;
 }
 
 * {
@@ -61,7 +61,7 @@ html, body {
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-  text-shadow: 0 0 30px rgba(255, 45, 85, 0.25);
+  text-shadow: 0 0 30px rgba(217, 43, 43, 0.28);
 }
 
 .subtitle {
@@ -83,7 +83,7 @@ html, body {
   flex-direction: column;
   gap: 1rem;
   min-width: 280px;
-  box-shadow: 0 0 40px rgba(122, 47, 240, 0.12);
+  box-shadow: 0 0 40px rgba(90, 143, 46, 0.2);
 }
 
 #playBtn {
@@ -147,7 +147,7 @@ input[type='range']::-webkit-slider-thumb {
   height: 13px;
   border-radius: 50%;
   background: #fff;
-  box-shadow: 0 0 8px rgba(255, 45, 85, 0.7);
+  box-shadow: 0 0 8px rgba(217, 43, 43, 0.7);
   cursor: pointer;
 }
 
@@ -157,7 +157,7 @@ input[type='range']::-moz-range-thumb {
   border: none;
   border-radius: 50%;
   background: #fff;
-  box-shadow: 0 0 8px rgba(255, 45, 85, 0.7);
+  box-shadow: 0 0 8px rgba(217, 43, 43, 0.7);
   cursor: pointer;
 }
 

@@ -1,81 +1,106 @@
-import { MODES, DARK_ROOTS, PROGRESSIONS, buildChord, voiceChordOpen, buildArpPool } from './theory.js';
-import { PadLayer } from './pads.js';
-import { ArpLayer } from './arp.js';
+import { MODES, DARK_ROOTS, PROGRESSIONS, buildChord, buildDissonantCluster, voiceChordOpen, bellPool, shepardBase, midiToFreq } from './theory.js';
+import { DroneLayer } from './drone.js';
+import { OrganLayer } from './organ.js';
+import { StabLayer } from './stabs.js';
+import { MetallicLayer } from './metallic.js';
+import { TextureLayer } from './texture.js';
+import { ShepardLayer } from './shepard.js';
 import { BassLayer } from './bass.js';
 
 function clamp01(v) {
   return Math.max(0, Math.min(1, v));
 }
 
-// Generative composer: picks a key/mode/progression at session start, then
-// runs a lookahead scheduler that advances chords on bar boundaries, steps
-// the arpeggiator on 16ths, mutates the arp pattern in small increments,
-// and slowly random-walks macro parameters (darkness/density/intensity) so
-// the piece drifts and breathes without ever fully resetting.
+// Generative horror composer. Owns musical time via a lookahead scheduler and
+// drives seven voice layers around a TENSION CYCLE:
 //
-// The piece runs in "movements" at a fixed tempo -- tempo never changes
-// mid-movement, only at an explicit ending: a huge multi-octave stab on
-// the tonic across pad/bass/arp, fading away to leave a lone sustained
-// pad, after which a new movement begins at a freshly chosen tempo.
+//   build  →  (loud stinger + near-silence)  |  (withheld, slow release)  →  build …
 //
-// The bass is a continuous repetitive ostinato on the root that fades in
-// and out on its own slow drift, rather than a rare "takeover" event. The
-// pad additionally has a rhythmic 16th-note gate mode that switches on and
-// off at random.
+// A low drone bed is always present. During a "build", tension rises and every
+// layer rides up with it — the organ swells brighten, dissonant stabs and the
+// high metallic "eerie melody" come in thicker, texture punctuation (scrape,
+// creak, crackle) gets more frequent, and a Shepard "forever-rising" dread
+// glide climbs underneath. At the top of the build the cycle either pays off
+// in a full-band dissonant stinger + sub-drop followed by near-silence, or
+// withholds and exhales into a slow, lonely swell before a fresh cell begins.
+//
+// The public surface (setters, triggerEnding, on* hooks, public fields) is the
+// same as the ambient version, so embedding code keeps working:
+//   onEnding       = the payoff moment (stinger or withheld release)
+//   onMovementStart = a new harmonic cell begins after the payoff
+
 export class Conductor {
   constructor(audioCore) {
     this.core = audioCore;
     this.ctx = audioCore.ctx;
 
-    this.pads = new PadLayer(this.ctx, audioCore, { reverbAmount: 0.5, delayAmount: 0.04 });
-    this.arp = new ArpLayer(this.ctx, audioCore, { reverbAmount: 0.3, delayAmount: 0.5 });
-    this.bass = new BassLayer(this.ctx, audioCore, { reverbAmount: 0.18, delayAmount: 0 });
+    this.drone = new DroneLayer(this.ctx, audioCore, { reverbAmount: 0.1 });
+    this.organ = new OrganLayer(this.ctx, audioCore, { reverbAmount: 0.5, delayAmount: 0.05 });
+    this.stabs = new StabLayer(this.ctx, audioCore, { reverbAmount: 0.5, delayAmount: 0.1, gritAmount: 0.5 });
+    this.metallic = new MetallicLayer(this.ctx, audioCore, { reverbAmount: 0.8, delayAmount: 0.3 });
+    this.texture = new TextureLayer(this.ctx, audioCore, { reverbAmount: 0.85 });
+    this.shepard = new ShepardLayer(this.ctx, audioCore, { reverbAmount: 0.7 });
+    this.bass = new BassLayer(this.ctx, audioCore, { reverbAmount: 0.65 });
 
     this.root = DARK_ROOTS[Math.floor(Math.random() * DARK_ROOTS.length)];
-    this.mode = ['aeolian', 'dorian', 'phrygian'][Math.floor(Math.random() * 3)];
+    this.mode = this._pickMode();
     this.progression = PROGRESSIONS[Math.floor(Math.random() * PROGRESSIONS.length)];
     this.chordIndex = 0;
-    this.barsPerChord = 4;
+    this.currentDegree = 0;
+    this.nextChordBar = 0;
+    this.bellNotes = [];
 
-    this.baseBpm = 76;
+    this.baseBpm = 72;
     this.bpm = this.baseBpm;
     this.beatsPerBar = 4;
-    this.stepsPerBeat = 4; // 16th-note grid
+    this.stepsPerBeat = 4; // 16th-note grid (for event alignment, not a running arp)
 
-    this.lookahead = 25; // ms, scheduler tick interval
+    this.lookahead = 25; // ms scheduler tick
     this.scheduleAheadTime = 0.15; // seconds
     this.nextStepTime = 0;
     this.stepCount = 0;
     this.timerID = null;
 
-    this.macro = { darkness: 0.5, density: 0.6, padLevel: 0.55, arpLevel: 0.4, bassLevel: 0.35, intensity: 0.15, timbre: 0.5 };
-    this.intensityTarget = 0.15;
-    this.intensitySurging = false;
+    // Slowly drifting "character" of the mix (random-walked every few bars).
+    this.macro = {
+      dread: 0.55, // dissonance / grit / timbre
+      density: 0.55, // event density
+      timbre: 0.5, // detune width / metallic edge
+      droneLevel: 0.4,
+      organLevel: 0.3,
+      bassLevel: 0.4,
+      metallicLevel: 0.28,
+      textureLevel: 0.24,
+    };
 
-    // Bass note-density is an audible read on intensity: 8th notes at
-    // rest, switching to 16ths during a tension surge.
-    this.bassSixteenths = false;
-
-    // 'normal' = playing generatively; 'quiet' = the ending stab has fired
-    // and only the lone resting pad is ringing out, waiting to restart.
-    this.phase = 'normal';
+    // The tension cycle.
+    this.tension = 0.1; // 0..1, rises through a build
+    this.phase = 'build'; // 'build' | 'payoff'
     this.phaseUntil = 0;
-    this.movementEndBar = this._pickMovementLength();
-
-    this.padGate = { active: false, endBar: 0, tick: 0 };
+    this.lastWasLoud = false;
+    this.pendingPayoff = false;
+    this.shepardActive = false;
+    this.shepardEnd = 0;
+    this._bassPlan = null;
 
     this.running = false;
 
-    // Optional hooks for a host app to sync against -- assign a function
-    // to react to that event, leave null to ignore it. See README.
-    this.onBar = null; // (barIndex) => void, fires once per bar
-    this.onChord = null; // ({ root, mode, degree, midiNotes }) => void, fires on every chord change
-    this.onEnding = null; // () => void, fires the instant the ending stab triggers
-    this.onMovementStart = null; // ({ root, mode, bpm }) => void, fires when a new movement begins after an ending
+    // Embedding hooks (leave null to ignore).
+    this.onBar = null; // (barIndex) => void
+    this.onChord = null; // ({ root, mode, degree, midiNotes }) => void, on each cell advance
+    this.onEnding = null; // () => void, the instant the payoff triggers
+    this.onMovementStart = null; // ({ root, mode, bpm }) => void, a new cell begins
   }
 
   _stepDuration() {
     return 60 / this.bpm / this.stepsPerBeat;
+  }
+
+  _pickMode() {
+    const r = Math.random();
+    if (r < 0.55) return 'aeolian';
+    if (r < 0.85) return 'phrygian';
+    return 'dorian';
   }
 
   start() {
@@ -83,11 +108,15 @@ export class Conductor {
     this.running = true;
     this.chordIndex = 0;
     this.stepCount = 0;
-    this.phase = 'normal';
-    this.movementEndBar = this._pickMovementLength();
-    this.padGate = { active: false, endBar: 0, tick: 0 };
-    this.bassSixteenths = false;
+    this.phase = 'build';
+    this.tension = 0.1;
+    this.nextChordBar = 0;
+    this.shepardActive = false;
+    this.pendingPayoff = false;
+    this.drone.start(this.root, 7); // sub root + fifth
     this.nextStepTime = this.ctx.currentTime + 0.1;
+    this._advanceCell(0, this.nextStepTime);
+    this._rideTension();
     this.timerID = setInterval(() => this._scheduler(), this.lookahead);
   }
 
@@ -95,6 +124,7 @@ export class Conductor {
     this.running = false;
     if (this.timerID) clearInterval(this.timerID);
     this.timerID = null;
+    this.drone.stop();
   }
 
   _scheduler() {
@@ -106,312 +136,271 @@ export class Conductor {
   }
 
   _scheduleStep(step, time) {
-    if (this.phase === 'quiet' && time >= this.phaseUntil) {
-      this._beginNewMovement(time);
-      return; // step/barIndex below are stale relative to the fresh movement
-    }
-
     const stepsPerBar = this.beatsPerBar * this.stepsPerBeat;
-    const barStep = step % stepsPerBar;
     const barIndex = Math.floor(step / stepsPerBar);
+    const barStep = step % stepsPerBar;
 
-    if (barStep === 0 && this.phase === 'normal') {
-      this._onBar(barIndex, time);
+    // Payoff in progress: resolve it once its window elapses, then no new events.
+    if (this.phase !== 'build') {
+      if (time >= this.phaseUntil) this._beginRebuild(barIndex, time);
+      return;
     }
 
-    if (this.phase !== 'normal') return;
+    if (barStep === 0) this._onBar(barIndex, time);
 
-    if (this.macro.density > 0.1) {
-      const arpCutoff = 800 + (1 - this.macro.darkness) * 1200 + this.macro.intensity * 600;
-      const arpQ = 2 + this.macro.timbre * 6 + this.macro.intensity * 6 + Math.random() * 2;
-      const sawLevel = 0.3 + this.macro.timbre * 0.35;
-      const sqLevel = 0.5 - this.macro.timbre * 0.3;
-      const detune = -4 - this.macro.timbre * 10;
-      this.arp.triggerStep(time, arpCutoff, arpQ, sawLevel, sqLevel, detune);
+    const isBeat = barStep % this.stepsPerBeat === 0;
+
+    // Bass — a sparse, defiant minor MELODY, not a pulse. One or two long,
+    // resonant notes are planned at bar start (this._bassPlan) and fired here
+    // on their beats, with real space between them.
+    if (isBeat && this._bassPlan) {
+      const beat = Math.floor(barStep / this.stepsPerBeat);
+      const ev = this._bassPlan.find((e) => e.beat === beat);
+      if (ev && this.macro.bassLevel > 0.05) this._fireBassNote(ev, time);
     }
 
-    // Bass: a continuous repetitive pedal ostinato on the root, not a
-    // rare takeover -- its presence fades in and out via macro.bassLevel.
-    // Note density doubles to 16ths during an intensity surge.
-    const bassGrid = this.bassSixteenths ? 1 : this.stepsPerBeat / 2;
-    if (step % bassGrid === 0) {
-      this._fireBassPulse(time);
+    // Dissonant stabs — density rises with tension, on beats plus off-beat menace.
+    if (isBeat) {
+      const chance = 0.04 + this.tension * 0.3 + this.macro.density * 0.08;
+      if (Math.random() < chance) this._fireStab(time);
+    } else if (Math.random() < 0.004 + this.tension * 0.02) {
+      this._fireStab(time);
     }
 
-    if (this.padGate.active) {
-      // Two alternating transitions per 16th-note step -- a 32nd-note
-      // chop, twice the rate of stepping the gate once per step.
-      const half = this._stepDuration() / 2;
-      this.pads.setGate(this.padGate.tick % 2 === 0, time);
-      this.padGate.tick++;
-      this.pads.setGate(this.padGate.tick % 2 === 0, time + half);
-      this.padGate.tick++;
+    // Sparse high "eerie melody" — a few bell notes per bar at most.
+    if (isBeat && (barStep === 0 || barStep === this.stepsPerBeat * 2)) {
+      const chance = 0.05 + this.tension * 0.12;
+      if (Math.random() < chance && this.bellNotes.length) this._fireBell(time);
     }
   }
 
-  _fireBassPulse(time) {
-    const octaveUp = Math.random() < 0.18;
-    const midi = this.root - 12 + (octaveUp ? 12 : 0);
+  // One bass-melody note: a low, resonant, long-decay tone an octave below the
+  // cell's key, sometimes doubled by the octave-up synth-string voice.
+  _fireBassNote(ev, time) {
+    const midi = this.root + ev.semi - 12;
     this.bass.playNote(midi, time, {
-      cutoffBase: 700 + this.macro.intensity * 500,
-      cutoffFloor: 130,
-      q: 8 + Math.random() * 5,
-      velocity: 0.45 + this.macro.intensity * 0.15,
-      holdTime: 0.06,
+      velocity: 0.4 + this.tension * 0.2,
+      attack: 0.25 + (1 - this.tension) * 0.35,
+      hold: 0.5 + Math.random() * 0.6,
+      release: 2.6 + Math.random() * 2.2,
+      bright: 0.55 + this.macro.timbre * 0.35,
+      detune: 6,
+      unison: ev.unison,
     });
+  }
+
+  // Plan the bar's sparse bass line at bar start. A "defiant" minor spine —
+  // mostly the root, fifth, and octave — with the odd passing minor-3rd /
+  // b2 for menace. One note (mostly) or two, always on strong beats, so there
+  // is real silence between them.
+  _planBassBar() {
+    const t = this.tension;
+    const twoNotes = Math.random() < 0.22 + t * 0.35;
+    const maybeUnison = () => Math.random() < 0.45;
+
+    const spine = [0, 7, 12, 0, 7];   // root, fifth, octave — open-minor defiant
+    const passing = [3, 1, 3, 7];     // minor 3rd, b2, minor 3rd, fifth
+
+    const first = spine[Math.floor(Math.random() * spine.length)];
+    const evs = [{ beat: 0, semi: first, unison: maybeUnison() }];
+
+    if (twoNotes) {
+      const beat2 = Math.random() < 0.5 ? 2 : 3;
+      const semi2 = passing[Math.floor(Math.random() * passing.length)];
+      evs.push({ beat: beat2, semi: semi2, unison: maybeUnison() });
+    }
+    return evs;
+  }
+
+  _fireStab(time) {
+    const cluster = buildDissonantCluster(this.root, this.mode, this.currentDegree, { size: 3 + Math.floor(this.tension * 3) });
+    this.stabs.playStab(cluster, time, {
+      cutoffBase: 3200 + this.macro.dread * 2500 + this.tension * 1800,
+      q: 4 + this.macro.dread * 5,
+      velocity: 0.18 + this.tension * 0.2,
+      decay: 0.3 + Math.random() * 0.3,
+    });
+  }
+
+  _fireBell(time) {
+    const midi = this.bellNotes[Math.floor(Math.random() * this.bellNotes.length)];
+    this.metallic.strike(midi, time, { decay: 2 + Math.random() * 3, ringAmount: 0.2 + this.macro.timbre * 0.3, beats: 6 + this.macro.dread * 8 });
+    // Occasionally a dissonant neighbor a semitone away for extra unease.
+    if (Math.random() < 0.3) {
+      const neighbor = midi + (Math.random() < 0.5 ? 1 : -1);
+      this.metallic.strike(neighbor, time + 0.02, { decay: 1.5, ringAmount: 0.3, beats: 10 });
+    }
   }
 
   _onBar(barIndex, time) {
     if (this.onBar) this.onBar(barIndex);
 
-    const chordBar = barIndex % this.barsPerChord;
-    if (chordBar === 0) {
-      this._advanceChord(time);
-    }
+    if (barIndex >= this.nextChordBar) this._advanceCell(barIndex, time);
 
-    const progressionLoopBars = this.barsPerChord * this.progression.length;
-    if (barIndex > 0 && barIndex % progressionLoopBars === 0) {
-      if (Math.random() < 0.35) {
-        this.progression = PROGRESSIONS[Math.floor(Math.random() * PROGRESSIONS.length)];
-      }
-      if (Math.random() < 0.12) {
-        this._shiftMode();
-      }
-    }
+    if (barIndex % 4 === 0) this._driftMacros();
 
-    const mutateChance = 0.2 + this.macro.intensity * 0.6;
-    if (barIndex % 2 === 0 && Math.random() < mutateChance) {
-      this.arp.mutate();
-    }
+    // Let a finished Shepard glide retire so we can start a fresh one.
+    if (this.shepardActive && time >= this.shepardEnd) this.shepardActive = false;
 
-    if (barIndex % 4 === 0) {
-      this._driftMacros();
-    }
+    // Tension builds each bar through a cycle.
+    this.tension = clamp01(this.tension + 0.012 + Math.random() * 0.022 + this.macro.density * 0.006);
 
-    // Soft-edged threshold so the switch to 16ths tracks intensity surges
-    // rather than flipping on a hard boundary.
-    this.bassSixteenths = this.macro.intensity > 0.5 + (Math.random() - 0.5) * 0.2;
+    // Plan this bar's sparse bass melody (uses the freshly-updated tension).
+    this._bassPlan = this._planBassBar();
 
-    this._maybeTogglePadGate(barIndex, time);
+    // Start a rising-dread glide once the build is underway.
+    if (this.tension > 0.35 && !this.shepardActive) this._startShepard(time);
 
-    if (barIndex >= this.movementEndBar) {
-      this._beginEnding(time);
+    this._maybeTexture(time);
+    this._rideTension();
+
+    // Top of the build: pay off, or a forced stinger.
+    if (this.tension >= 1.0 || this.pendingPayoff) {
+      this.pendingPayoff = false;
+      this._beginPayoff(time);
     }
   }
 
-  _advanceChord(time) {
+  _advanceCell(barIndex, time) {
     const degree = this.progression[this.chordIndex % this.progression.length];
     this.chordIndex++;
+    this.currentDegree = degree;
+    if (this.chordIndex % this.progression.length === 0 && Math.random() < 0.3) {
+      this.progression = PROGRESSIONS[Math.floor(Math.random() * PROGRESSIONS.length)];
+    }
 
-    const chordSemis = buildChord(0, this.mode, degree, { seventh: true, add9: Math.random() < 0.3 });
-    const padNotes = voiceChordOpen(this.root, chordSemis);
+    const chordSemis = buildChord(0, this.mode, degree, { seventh: false });
+    const swellNotes = voiceChordOpen(this.root, chordSemis);
 
-    const holdBeats = this.barsPerChord * this.beatsPerBar;
-    const holdDuration = holdBeats * (60 / this.bpm);
-    const fadeTime = Math.min(holdDuration * 0.35, 5.0);
-    const cutoffBase = 450 + this.macro.darkness * 80 + (1 - this.macro.darkness) * 850;
-    const oscLevel = 0.4 + this.macro.timbre * 0.35;
-    const subLevel = 0.45 - this.macro.timbre * 0.3;
-    const detune = 4 + this.macro.timbre * 14;
-    // Alternate in the spookier glass pad specifically around tension
-    // surges, rather than always sounding the same saw pad underneath
-    // everything.
-    const voice = this.intensitySurging || this.macro.intensity > 0.55 ? 'glass' : 'saw';
+    const holdBars = this._pickHoldBars();
+    this.nextChordBar = barIndex + holdBars;
+    const holdDuration = holdBars * this.beatsPerBar * (60 / this.bpm);
 
-    this.pads.playChord(padNotes, time, holdDuration - fadeTime, fadeTime, {
-      cutoffBase,
-      q: 4 + this.macro.timbre * 10 + this.macro.intensity * 8 + Math.random() * 3,
-      velocity: 0.16 + this.macro.density * 0.1,
-      oscLevel,
-      subLevel,
-      detune,
-      voice,
-    });
+    const t = this.tension;
+    const cutoff = 420 + (1 - this.macro.dread) * 500 + t * 1000;
+    const attack = Math.max(1.2, 4 - t * 2.5);
+    const hold = Math.max(0.5, holdDuration - attack - 3);
+    this.organ.playSwell(swellNotes, time, { attack, hold, release: 5, cutoff, velocity: 0.13 + t * 0.15, detune: 4 + this.macro.timbre * 5 });
 
-    const pool = buildArpPool(this.root, chordSemis, 12);
-    this.arp.setPool(pool);
-    this.arp.setPattern(this._makePattern(pool));
+    this.bellNotes = bellPool(this.root, this.mode, degree);
 
-    if (this.onChord) this.onChord({ root: this.root, mode: this.mode, degree, midiNotes: padNotes });
+    if (this.onChord) this.onChord({ root: this.root, mode: this.mode, degree, midiNotes: swellNotes });
   }
 
-  _makePattern(pool) {
-    const len = 16;
-    const restChance = clamp01(0.32 - this.macro.density * 0.15 - this.macro.intensity * 0.2);
-    const pattern = [];
-    for (let i = 0; i < len; i++) {
-      if (Math.random() < restChance) {
-        pattern.push(null);
-        continue;
-      }
-      pattern.push(pool[i % pool.length]);
+  _startShepard(time) {
+    this.shepardActive = true;
+    const duration = 8 + Math.random() * 8;
+    this.shepard.glide(time, { duration, direction: 1, velocity: 0.06 + this.tension * 0.06, baseMidi: shepardBase(this.root), steps: 12 });
+    this.shepardEnd = time + duration;
+  }
+
+  _maybeTexture(time) {
+    const t = this.tension;
+    const roll = Math.random();
+    const base = 0.02 + t * 0.1 + this.macro.textureLevel * 0.05;
+    if (roll < base * 0.5) {
+      this.texture.scrape(time, { duration: 1.5 + Math.random() * 2, velocity: 0.08 + t * 0.12, fromHz: 420 + Math.random() * 400, toHz: 150 + Math.random() * 120 });
+    } else if (roll < base) {
+      this.texture.creak(time, { duration: 2 + Math.random() * 3, velocity: 0.06 + t * 0.1, fromMidi: 30 + Math.floor(Math.random() * 5), toMidi: 22 + Math.floor(Math.random() * 4) });
+    } else if (roll < base * 1.3) {
+      this.texture.crackle(time, { duration: 0.8 + Math.random(), velocity: 0.1 + t * 0.15 });
     }
-    return pattern;
+    // Occasional wind/room swell underneath.
+    if (Math.random() < 0.05 + t * 0.05) {
+      this.texture.swell(0.06 + t * 0.08, 3 + Math.random() * 3, 2 + Math.random() * 3, 4 + Math.random() * 4, time);
+    }
+  }
+
+  // Ride every layer's level and character up with the current tension.
+  _rideTension() {
+    const t = this.tension;
+    this.drone.setLevel(this.macro.droneLevel * (0.45 + t * 0.9));
+    this.drone.setDepth(0.15 + t * 0.5);
+    this.drone.setCutoff(0.2 + t * 0.5);
+    this.organ.setLevel(this.macro.organLevel * (0.7 + t * 0.5));
+    this.bass.setLevel(this.macro.bassLevel * (0.9 + t * 0.6));
+    this.metallic.setLevel(this.macro.metallicLevel * (0.6 + t * 0.6));
+    this.texture.setWindLevel(this.macro.textureLevel * (0.35 + t * 0.8));
+  }
+
+  // The payoff: a loud dissonant stinger + near-silence, or a withheld,
+  // slow exhale. Either ends the build and leads into a fresh cell.
+  _beginPayoff(time) {
+    this.phase = 'payoff';
+    this.shepardActive = false;
+    if (this.onEnding) this.onEnding();
+    const degree = this.currentDegree;
+    const loud = Math.random() < 0.6;
+
+    if (loud) {
+      const cluster = buildDissonantCluster(this.root, this.mode, degree, { size: 6 });
+      this.stabs.playStab(cluster, time, { cutoffBase: 6000, q: 6, velocity: 0.5, decay: 0.6 });
+      this.stabs.playStab(buildDissonantCluster(this.root, this.mode, degree, { size: 5, octave: 1 }), time + 0.03, { cutoffBase: 4800, q: 6, velocity: 0.35, decay: 0.55 });
+      const chord = buildChord(this.root, this.mode, degree, { seventh: false });
+      this.organ.playSwell(chord, time, { attack: 0.06, hold: 1.6, release: 3.5, cutoff: 2400, velocity: 0.32, detune: 6 });
+      this.metallic.ringAccent(time, { freq: midiToFreq(this.root + 24), ratio: 3.1, decay: 1.5, velocity: 0.18 });
+      this.bass.subDrop(this.root - 24, time, { steps: 7, duration: 1.1, velocity: 0.7 });
+      this.texture.crackle(time, { duration: 1.6, velocity: 0.32 });
+      this.texture.swell(0.12, 0.2, 0.6, 1.6, time);
+      this.phaseUntil = time + 3 + Math.random() * 2;
+      this.lastWasLoud = true;
+    } else {
+      // Withheld release — a big slow swell, no stinger, then near-silence.
+      const chord = buildChord(this.root, this.mode, degree, { seventh: false });
+      const notes = voiceChordOpen(this.root, chord);
+      this.organ.playSwell(notes, time, { attack: 3, hold: 4, release: 6, cutoff: 700, velocity: 0.24, detune: 5 });
+      if (this.bellNotes.length) {
+        this.metallic.strike(this.bellNotes[Math.floor(Math.random() * this.bellNotes.length)], time + 0.4, { decay: 4, ringAmount: 0.25 });
+      }
+      this.phaseUntil = time + 7 + Math.random() * 3;
+      this.lastWasLoud = false;
+    }
+
+    // Sink the drone toward a low, lonely floor for the near-silence.
+    this.drone.setLevel(this.macro.droneLevel * 0.35);
+  }
+
+  _beginRebuild(barIndex, time) {
+    this.phase = 'build';
+    this.tension = 0.08 + Math.random() * 0.08;
+    this.shepardActive = false;
+    this._bassPlan = this._planBassBar();
+
+    this.root = DARK_ROOTS[Math.floor(Math.random() * DARK_ROOTS.length)];
+    if (Math.random() < 0.4) this._shiftMode();
+    this.progression = PROGRESSIONS[Math.floor(Math.random() * PROGRESSIONS.length)];
+    this.chordIndex = 0;
+    this.nextChordBar = 0;
+
+    this.drone.setPitch(this.root); // glide the bed to the new key
+    this._rideTension();
+
+    if (this.onMovementStart) this.onMovementStart({ root: this.root, mode: this.mode, bpm: this.bpm });
+    this._advanceCell(barIndex, time);
   }
 
   _shiftMode() {
-    const modes = Object.keys(MODES).filter((m) => m !== this.mode);
-    this.mode = modes[Math.floor(Math.random() * modes.length)];
+    this.mode = this._pickMode();
   }
 
-  // Rhythmic pad gate: rare, short bursts of a hard 16th-note on/off chop,
-  // switching on and back off at random.
-  _maybeTogglePadGate(barIndex, time) {
-    if (!this.padGate.active) {
-      if (Math.random() < 0.05) {
-        this.padGate.active = true;
-        this.padGate.tick = 0;
-        this.padGate.endBar = barIndex + 1 + Math.floor(Math.random() * 3);
-      }
-    } else if (barIndex >= this.padGate.endBar) {
-      this.padGate.active = false;
-      this.pads.setGate(true, time);
-    }
-  }
-
-  _pickMovementLength() {
-    return 24 + Math.floor(Math.random() * 17); // 24-40 bars
-  }
-
-  _pickNewTempo() {
-    return Math.round(55 + Math.random() * 70); // 55-125 bpm
-  }
-
-  // Direction for the ending flourish: ascending, descending, an arch
-  // (up then down), or a shuffled run -- varies each time rather than
-  // always climbing straight through the pool.
-  _flourishOrder(pool) {
-    const notes = [...pool].sort((a, b) => a - b);
-    const shape = Math.random();
-    if (shape < 0.28) return notes;
-    if (shape < 0.56) return notes.slice().reverse();
-    if (shape < 0.8) return notes.concat(notes.slice(0, -1).reverse());
-    const shuffled = notes.slice();
-    for (let i = shuffled.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-    }
-    return shuffled;
-  }
-
-  // Cumulative time offsets for the flourish notes -- a random start/end
-  // gap so each run can accelerate, decelerate, or stay roughly even,
-  // rather than always ticking at a fixed rate.
-  _flourishTimings(count) {
-    const startGap = 0.025 + Math.random() * 0.055;
-    const endGap = 0.025 + Math.random() * 0.055;
-    const offsets = [0];
-    for (let i = 1; i < count; i++) {
-      const t = i / Math.max(1, count - 1);
-      offsets.push(offsets[i - 1] + startGap + (endGap - startGap) * t);
-    }
-    return offsets;
-  }
-
-  // The ending: a huge combined stab on the tonic across pad/bass/arp,
-  // spread over a wide octave range, fading away to leave a lone
-  // sustained pad ringing out before the next movement begins.
-  _beginEnding(time) {
-    this.phase = 'quiet';
-    if (this.onEnding) this.onEnding();
-    this.padGate.active = false;
-    this.pads.setGate(true, time);
-    this.pads.setLevel(0.7);
-    this.bass.setLevel(0.85);
-    this.arp.setLevel(0.6);
-
-    const chordSemis = buildChord(0, this.mode, 0, { seventh: false, add9: false });
-    const bigNotes = [];
-    for (let oct = -1; oct <= 3; oct++) {
-      chordSemis.forEach((semi) => {
-        const pc = ((semi % 12) + 12) % 12;
-        bigNotes.push(this.root + pc + oct * 12);
-      });
-    }
-    this.pads.playChord(bigNotes, time, 0.3, 1.8, { cutoffBase: 2000, q: 4, velocity: 0.42 });
-
-    this.bass.playNote(this.root - 12, time, {
-      cutoffBase: 2200,
-      cutoffFloor: 300,
-      q: 10,
-      velocity: 0.9,
-      holdTime: 0.3,
-    });
-
-    const pool = buildArpPool(this.root, chordSemis, 12);
-    this.arp.setPool(pool);
-    const flourishNotes = this._flourishOrder(pool);
-    const offsets = this._flourishTimings(flourishNotes.length);
-    flourishNotes.forEach((midi, i) => {
-      this.arp.hit(midi, time + offsets[i], 4200, 2, 0.5, 0.35, -6);
-    });
-
-    const restNotes = voiceChordOpen(this.root, chordSemis);
-    const restAttack = 2.5;
-    const restHold = 8 + Math.random() * 6;
-    this.pads.playChord(restNotes, time + 0.5, restHold, restAttack, { cutoffBase: 480, q: 3, velocity: 0.2, voice: 'glass' });
-
-    this.phaseUntil = time + 0.5 + restAttack + restHold + restAttack * 1.6 + 0.4;
-  }
-
-  _beginNewMovement(time) {
-    this.phase = 'normal';
-    this.stepCount = 0;
-    this.baseBpm = this._pickNewTempo();
-    this.bpm = this.baseBpm;
-    this.root = DARK_ROOTS[Math.floor(Math.random() * DARK_ROOTS.length)];
-    this.movementEndBar = this._pickMovementLength();
-    this._applyLevels();
-    if (this.onMovementStart) this.onMovementStart({ root: this.root, mode: this.mode, bpm: this.bpm });
-    this._advanceChord(time);
-  }
-
-  _applyLevels() {
-    this.pads.setLevel(this.macro.padLevel);
-    this.arp.setLevel(this.macro.arpLevel);
-    this.bass.setLevel(this.macro.bassLevel);
+  _pickHoldBars() {
+    const opts = [3, 4, 4, 5, 6];
+    return opts[Math.floor(Math.random() * opts.length)];
   }
 
   _driftMacros() {
-    this.macro.darkness = clamp01(this.macro.darkness + (Math.random() - 0.5) * 0.3);
-    this.macro.density = clamp01(this.macro.density + (Math.random() - 0.5) * 0.25);
-    // Slow drift through oscillator balance/resonance/detune width, so the
-    // pad and arp travel through different textures over the piece.
-    this.macro.timbre = clamp01(this.macro.timbre + (Math.random() - 0.5) * 0.25);
-
-    // Intensity: occasional surges that decay back down over the
-    // following ticks, driving density/resonance/filter-rate faster and
-    // more erratic before calming -- tempo is deliberately not touched
-    // here, so momentum only changes at an explicit ending.
-    if (!this.intensitySurging) {
-      if (Math.random() < 0.14) {
-        this.intensityTarget = 0.7 + Math.random() * 0.3;
-        this.intensitySurging = true;
-      } else {
-        this.intensityTarget = 0.1 + Math.random() * 0.15;
-      }
-    } else {
-      this.intensityTarget -= 0.22;
-      if (this.intensityTarget <= 0.15) {
-        this.intensityTarget = 0.1;
-        this.intensitySurging = false;
-      }
-    }
-    this.macro.intensity = clamp01(this.macro.intensity + (this.intensityTarget - this.macro.intensity) * 0.5);
-
-    // Pad sits low in the mix by default and rides up with intensity, so
-    // it only becomes prominent during a tension surge rather than sitting
-    // loud underneath everything. Arp/bass keep their own moderate random
-    // walk, occasionally dipping low for a deliberate "breath".
-    const padRest = Math.random() < 0.12 ? 0.02 + Math.random() * 0.05 : 0.1 + Math.random() * 0.12;
-    this.macro.padLevel = clamp01(padRest + this.macro.intensity * 0.55);
-    this.macro.arpLevel = Math.random() < 0.15 ? 0.02 + Math.random() * 0.06 : clamp01(0.2 + Math.random() * 0.4);
-    this.macro.bassLevel = Math.random() < 0.2 ? 0.02 + Math.random() * 0.05 : clamp01(0.3 + Math.random() * 0.4);
-
-    this._applyLevels();
-    this.pads.setFilterRate(0.02 + this.macro.intensity * 0.2 + (1 - this.macro.darkness) * 0.04);
-    this.arp.setFilterRate(0.05 + this.macro.intensity * 0.4);
+    this.macro.dread = clamp01(this.macro.dread + (Math.random() - 0.5) * 0.28);
+    this.macro.density = clamp01(this.macro.density + (Math.random() - 0.5) * 0.22);
+    this.macro.timbre = clamp01(this.macro.timbre + (Math.random() - 0.5) * 0.2);
+    this.macro.droneLevel = clamp01(0.25 + Math.random() * 0.3);
+    this.macro.organLevel = clamp01(0.2 + Math.random() * 0.25);
+    this.macro.bassLevel = clamp01(0.4 + Math.random() * 0.3);
+    this.macro.metallicLevel = clamp01(0.18 + Math.random() * 0.25);
+    this.macro.textureLevel = clamp01(0.12 + Math.random() * 0.25);
+    this.organ.setFilterRate(0.02 + this.tension * 0.12);
   }
+
+  // ---- Public control surface (same names as the ambient version) ----
 
   setTempo(bpm) {
     this.baseBpm = bpm;
@@ -419,24 +408,25 @@ export class Conductor {
   }
 
   setDarknessOverride(v) {
-    this.macro.darkness = v;
+    this.macro.dread = clamp01(v);
   }
 
   setDensityOverride(v) {
-    this.macro.density = v;
-    this.macro.arpLevel = clamp01(0.2 + v * 0.5);
-    this._applyLevels();
+    this.macro.density = clamp01(v);
   }
 
   setTimbreOverride(v) {
     this.macro.timbre = clamp01(v);
   }
 
-  // Forces the ending sequence at the next bar boundary instead of
-  // waiting for the current movement to run its course. No-op if an
-  // ending is already in progress.
+  // Force the payoff at the next bar instead of waiting for the build to peak.
   triggerEnding() {
-    if (this.phase !== 'normal') return;
-    this.movementEndBar = 0;
+    if (this.phase !== 'build') return;
+    this.pendingPayoff = true;
+  }
+
+  // Convenience alias for horror hosts.
+  triggerStinger() {
+    this.triggerEnding();
   }
 }

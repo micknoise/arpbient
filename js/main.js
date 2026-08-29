@@ -4,8 +4,8 @@ import { Visualizer } from './visualizer.js';
 
 const playBtn = document.getElementById('playBtn');
 const volSlider = document.getElementById('vol');
-const darkSlider = document.getElementById('dark');
-const densSlider = document.getElementById('dens');
+const dreadSlider = document.getElementById('dread');
+const tensionSlider = document.getElementById('tension');
 const tempoSlider = document.getElementById('tempo');
 const statusEl = document.getElementById('status');
 const canvas = document.getElementById('viz');
@@ -18,7 +18,8 @@ const MODE_LABELS = { aeolian: 'aeolian', dorian: 'dorian', phrygian: 'phrygian'
 
 function updateStatus() {
   if (!conductor) return;
-  statusEl.textContent = `${MODE_LABELS[conductor.mode]} · root midi ${conductor.root} · ${conductor.bpm} bpm`;
+  const t = Math.round(conductor.tension * 100);
+  statusEl.textContent = `${MODE_LABELS[conductor.mode]} · root midi ${conductor.root} · ${conductor.bpm} bpm · tension ${t}%`;
 }
 
 function init() {
@@ -27,8 +28,8 @@ function init() {
   viz = new Visualizer(canvas, core.analyser);
 
   core.setMasterVolume(parseFloat(volSlider.value));
-  conductor.setDarknessOverride(parseFloat(darkSlider.value));
-  conductor.setDensityOverride(parseFloat(densSlider.value));
+  conductor.setDarknessOverride(parseFloat(dreadSlider.value));
+  conductor.setDensityOverride(parseFloat(tensionSlider.value));
   conductor.setTempo(parseFloat(tempoSlider.value));
 }
 
@@ -48,13 +49,16 @@ playBtn.addEventListener('click', async () => {
   }
 });
 
+// Keep the status readout (tension/phase) live without a render loop.
+setInterval(updateStatus, 400);
+
 volSlider.addEventListener('input', (e) => {
   if (core) core.setMasterVolume(parseFloat(e.target.value));
 });
-darkSlider.addEventListener('input', (e) => {
+dreadSlider.addEventListener('input', (e) => {
   if (conductor) conductor.setDarknessOverride(parseFloat(e.target.value));
 });
-densSlider.addEventListener('input', (e) => {
+tensionSlider.addEventListener('input', (e) => {
   if (conductor) conductor.setDensityOverride(parseFloat(e.target.value));
 });
 tempoSlider.addEventListener('input', (e) => {

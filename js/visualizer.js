@@ -33,17 +33,17 @@ export class Visualizer {
     const { ctx2d: ctx, canvas, analyser, data } = this;
     analyser.getByteTimeDomainData(data);
 
-    ctx.fillStyle = 'rgba(6,4,12,0.22)';
+    ctx.fillStyle = 'rgba(5,8,7,0.22)';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     const dpr = window.devicePixelRatio || 1;
     ctx.lineWidth = 2 * dpr;
     const grad = ctx.createLinearGradient(0, 0, canvas.width, 0);
-    grad.addColorStop(0, '#7a2ff0');
-    grad.addColorStop(0.5, '#ff2d55');
-    grad.addColorStop(1, '#22d3c4');
+    grad.addColorStop(0, '#5a8f2e');
+    grad.addColorStop(0.5, '#c6ff3d');
+    grad.addColorStop(1, '#d92b2b');
     ctx.strokeStyle = grad;
-    ctx.shadowColor = 'rgba(255,45,85,0.35)';
+    ctx.shadowColor = 'rgba(217,43,43,0.35)';
     ctx.shadowBlur = 8 * dpr;
 
     ctx.beginPath();
