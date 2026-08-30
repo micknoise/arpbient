@@ -10,6 +10,8 @@ with the Web Audio API. No samples, no build step, no dependencies.
 | **Techno** | driving 4-on-the-floor: acid bass ostinato, off-beat hats, 16th plucks and syncopated stabs, sidechain pump, riser endings | [`techno/`](techno/) |
 | **House** | warm syncopated groove: off-beat open hats (swung), chorus stabs, deep bouncy bass, groove/break/peak sections | [`house/`](house/) |
 | **Ambient Techno** | slow & hypnotic: sparse drums, deep sub swells, wide evolving pads, long reverbed melodies, ~2-minute movements | [`ambient-techno/`](ambient-techno/) |
+| **Electronic Dub** | one-drop groove: skank offbeat stabs, long-decay echo bass, random dropouts, echo swells, stripped dub-out sections | [`electronic-dub/`](electronic-dub/) |
+| **Electronica** | IDM: dense 16th noodle arps, gliding syncopated bass, glitch hats, drumless breaks | [`electronica/`](electronica/) |
 
 Reference points: John Carpenter, the *Halloween* score, early Gary Numan, Klaus Schulze,
 Jean-Michel Jarre, Kyle Dixon/Michael Stein's *Stranger Things* score.
@@ -29,6 +31,8 @@ python3 -m http.server 8000
 - **Techno**: http://localhost:8000/techno/
 - **House**: http://localhost:8000/house/
 - **Ambient Techno**: http://localhost:8000/ambient-techno/
+- **Electronic Dub**: http://localhost:8000/electronic-dub/
+- **Electronica**: http://localhost:8000/electronica/
 
 Or serve an app directory directly (`cd wraith && python3 -m http.server 8000`).
 Click **PLAY** — audio requires a user gesture to start in-browser. Headphones recommended.
