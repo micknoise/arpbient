@@ -101,7 +101,7 @@ export function createDelay(ctx, { time = 0.55, feedback = 0.38, cutoff = 2200 }
   fb.connect(delay);
   filter.connect(output);
 
-  return { input, output, delayNode: delay, setDelayTime: (v) => { delay.delayTime.value = v; }, setFeedback: (v) => { fb.gain.value = v; } };
+  return { input, output, delayNode: delay, feedbackGain: fb, setDelayTime: (v) => { delay.delayTime.value = v; }, setFeedback: (v) => { fb.gain.value = v; } };
 }
 
 // Alternating L/R echo with shared lowpass feedback -- the dub "ping-pong"

@@ -122,6 +122,18 @@ export class AudioCore {
     this.saturation.curve = createSaturationCurve(amount);
   }
 
+  // A temporary echo burst (the dub "echo swell"): push delay feedback and
+  // return up at `time`, then let them settle back after `duration`.
+  // `baseFeedback`/`baseReturn` are the resting values to restore.
+  delayBurst(time, duration, { baseFeedback = 0.4, baseReturn = 0.5, feedback = 0.78, returnLevel = 1.0 } = {}) {
+    const fb = this.delayBus.feedbackGain.gain;
+    const ret = this.delayReturn.gain;
+    fb.setTargetAtTime(feedback, time, 0.05);
+    fb.setTargetAtTime(baseFeedback, time + duration, 0.25);
+    ret.setTargetAtTime(returnLevel, time, 0.05);
+    ret.setTargetAtTime(baseReturn, time + duration, 0.25);
+  }
+
   // Live return levels -- the "space" sliders ride the wet returns.
   setReverbReturn(v) {
     this.reverbReturn.gain.setTargetAtTime(Math.max(0, v), this.ctx.currentTime, 0.4);

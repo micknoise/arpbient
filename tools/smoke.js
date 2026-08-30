@@ -86,7 +86,7 @@ const engines = args.length ? args : [
   'electronica', 'glitchcore', 'drum-and-bass',
 ].filter((g) => {
   try {
-    return require('fs').statSync(g + '/js/conductor.js').isFile();
+    return statSync(g + '/js/conductor.js').isFile();
   } catch {
     return false;
   }
