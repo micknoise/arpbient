@@ -44,7 +44,13 @@ export class Conductor {
     // layers rather than swapping parts on independent timers.
     this.sectionBar = 0;
     this.layerGates = {};
-    this.polyBar = -1;
+    // Section-long polyrhythmic top voice (see _pickPoly): a dotted-division
+    // sequence loop that plays in place of the grid lead for the whole
+    // section and resets every four bars.
+    this.poly = false;
+    this.polyDiv = 3;
+    this.polyNotesPerBar = 6;
+    this.polySeq = [];
 
     // 16-step patterns.
     this.kickPat = [1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0];
@@ -80,7 +86,10 @@ export class Conductor {
   start() {
     if (this.running) return;
     this.running = true;
-    if (this.userTempo != null) this.bpm = this.userTempo;
+    if (this.userTempo != null) {
+      this.bpm = this.userTempo;
+      this.userTempo = null; // one-shot: applies to this movement only
+    }
     this._initMovement();
     this.phase = 'normal';
     this._syncDelay();
@@ -97,7 +106,6 @@ export class Conductor {
   _initMovement() {
     this.chordIndex = 0;
     this.stepCount = 0;
-    this.polyBar = -1;
     this.sweepBar = randInt(8, 16);
     this._advanceChord(true);
     this._applySection('drift');
@@ -170,15 +178,33 @@ export class Conductor {
       }
     }
 
-    // Sparse long lead notes (skipped on a polyrhythmic bar).
-    const l = this.leadPat[barStep];
-    if (l && barIndex !== this.polyBar && this._layerOn('lead')) {
-      this.lead.note(this.leadPool[l.noteIdx % this.leadPool.length], time, {
-        cutoffBase: 1600 + this.macro.warmth * 900,
-        velocity: l.vel,
-        decay: l.len,
-        vibratoRate: 3.5,
-      });
+    // Sparse long lead notes, or -- in a poly section -- a section-long
+    // dotted-division loop (see _pickPoly) that holds for the whole
+    // section and resets every four bars.
+    const leadOn = this._layerOn('lead');
+    if (leadOn && this.poly) {
+      if (barStep % this.polyDiv === 0) {
+        const noteInBar = barStep / this.polyDiv;
+        const barInCycle = barIndex % 4;
+        const seqIdx = (barInCycle * this.polyNotesPerBar + noteInBar) % this.polySeq.length;
+        const ni = ((this.polySeq[seqIdx] % this.leadPool.length) + this.leadPool.length) % this.leadPool.length;
+        this.lead.note(this.leadPool[ni], time, {
+          cutoffBase: 1600 + this.macro.warmth * 900,
+          velocity: noteInBar === 0 ? 0.36 : 0.26,
+          decay: 1.6,
+          vibratoRate: 3.5,
+        });
+      }
+    } else if (leadOn) {
+      const l = this.leadPat[barStep];
+      if (l) {
+        this.lead.note(this.leadPool[l.noteIdx % this.leadPool.length], time, {
+          cutoffBase: 1600 + this.macro.warmth * 900,
+          velocity: l.vel,
+          decay: l.len,
+          vibratoRate: 3.5,
+        });
+      }
     }
   }
 
@@ -208,14 +234,6 @@ export class Conductor {
       this.sectionUntilBar = barIndex + randInt(4, 8);
     } else if (barIndex > 0) {
       this.sectionBar++;
-    }
-
-    // Polyrhythmic lead bar (3-against-4, 5-against-4 at slow tempos).
-    // Only against a live grid lead -- an orphaned off-grid phrase with
-    // the lead gated off reads as a timing error.
-    if (barIndex > 0 && this._layerOn('lead') && Math.random() < 0.15) {
-      this.polyBar = barIndex;
-      this._playPolyPhrase(time);
     }
 
     // Intensity drift (drum presence swells and fades).
@@ -260,6 +278,10 @@ export class Conductor {
       name === 'swell' ? {} :
       name === 'deep' ? { hat: 2, openHat: 3, rim: 4, lead: 0 } :
       { hat: 1, openHat: 2, rim: 2, lead: 1 };
+    // The sparse lead is sometimes the section-long polyrhythmic dotted
+    // loop instead of the grid pattern (rolled with the section).
+    this.poly = Math.random() < 0.35;
+    if (this.poly) this._pickPoly();
   }
 
   _pickSection() {
@@ -370,27 +392,25 @@ export class Conductor {
     this.rimPat = pat;
   }
 
-  // Polyrhythmic lead phrase, always within one bar (polyBar suppresses
-  // the grid lead for exactly one bar). Notes walk the pool with an
-  // accented head -- a deliberate figure, not a timing slip.
-  _playPolyPhrase(time) {
-    const barDur = (4 * 60) / this.bpm;
-    const [n, beats] = pick([[3, 4], [5, 4], [3, 2], [7, 4]]);
-    const span = beats * (barDur / 4);
-    const start = time;
-    const pool = this.leadPool;
-    let idx = Math.floor(Math.random() * pool.length);
-    const dir = Math.random() < 0.5 ? 1 : -1;
-    for (let i = 0; i < n; i++) {
-      const t = start + (span * i) / n;
+  // Roll the section's polyrhythmic top voice: a dotted-division sequence
+  // loop. The division is a dotted 8th (every 3rd 16th, 3:2) or a dotted
+  // quarter (every 6th, 3:4) -- both on the 16th grid, so it stays in time.
+  // The melodic contour is four bars long and loops, resetting every four
+  // bars. A section-long figure, not a one-off phrase.
+  _pickPoly() {
+    this.polyDiv = Math.random() < 0.5 ? 3 : 6;
+    this.polyNotesPerBar = Math.floor(15 / this.polyDiv) + 1; // div3 -> 6, div6 -> 3
+    const total = this.polyNotesPerBar * 4;
+    const poolLen = Math.max(1, this.leadPool.length);
+    const seq = [];
+    let idx = Math.floor(Math.random() * poolLen);
+    let dir = Math.random() < 0.5 ? 1 : -1;
+    for (let i = 0; i < total; i++) {
+      seq.push(idx);
       idx += dir * pick([1, 1, 2]);
-      this.lead.note(pool[((idx % pool.length) + pool.length) % pool.length], t, {
-        cutoffBase: 1800,
-        velocity: i === 0 ? 0.36 : 0.24,
-        decay: 1.2,
-        vibratoRate: 4,
-      });
+      if (Math.random() < 0.18) dir *= -1; // the figure turns occasionally
     }
+    this.polySeq = seq;
   }
 
   _pickMovementLength() {
@@ -443,7 +463,11 @@ export class Conductor {
 
   _beginNewMovement(time) {
     this.phase = 'normal';
-    this.bpm = this.userTempo != null ? this.userTempo : this._pickNewTempo();
+    // Tempo is a one-shot slider target or a fresh re-roll -- never pinned
+    // across movements.
+    const t = this.userTempo;
+    this.userTempo = null;
+    this.bpm = t != null ? t : this._pickNewTempo();
     this.root = pick([40, 43, 45, 47, 48]);
     this.mode = Math.random() < 0.7 ? 'aeolian' : 'dorian';
     this.progression = pick(PROGRESSIONS);
@@ -458,10 +482,12 @@ export class Conductor {
     if (this.onMovementStart) this.onMovementStart({ root: this.root, mode: this.mode, bpm: this.bpm });
   }
 
+  // Re-roll the delay time each movement: one of three BPM-locked
+  // spacings (3/4 beat, 1 beat, just under 2 beats for the cascade tail).
+  // This logic is identical across all nine engines.
   _syncDelay() {
-    // Just under two beats -- the slow tempo leaves room for a long
-    // cascading echo tail.
-    this.core.setDelayTime((60 / this.bpm) * 1.9);
+    const beats = [0.75, 1, 1.9][Math.floor(Math.random() * 3)];
+    this.core.setDelayTime((60 / this.bpm) * beats);
   }
 
   setTempo(bpm) {

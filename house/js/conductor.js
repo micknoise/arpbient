@@ -51,7 +51,13 @@ export class Conductor {
     // texture layers rather than swapping parts on independent timers.
     this.sectionBar = 0;
     this.layerGates = {};
-    this.polyBar = -1;
+    // Section-long polyrhythmic top voice (see _pickPoly): a dotted-division
+    // sequence loop that plays in place of the grid melody for the whole
+    // section and resets every four bars.
+    this.poly = false;
+    this.polyDiv = 3;
+    this.polyNotesPerBar = 6;
+    this.polySeq = [];
 
     // 16-step patterns.
     this.kickPat = [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0];
@@ -93,7 +99,10 @@ export class Conductor {
   start() {
     if (this.running) return;
     this.running = true;
-    if (this.userTempo != null) this.bpm = this.userTempo;
+    if (this.userTempo != null) {
+      this.bpm = this.userTempo;
+      this.userTempo = null; // one-shot: applies to this movement only
+    }
     this._initMovement();
     this.phase = 'normal';
     this._syncDelay();
@@ -111,7 +120,6 @@ export class Conductor {
     this.chordIndex = 0;
     this.stepCount = 0;
     this.sectionUntilBar = 0;
-    this.polyBar = -1;
     this._advanceChord(this.ctx.currentTime, true);
     this._applySection('groove');
   }
@@ -200,16 +208,35 @@ export class Conductor {
       });
     }
 
-    // Sparse chorus melody (skipped on a polyrhythmic bar).
-    const m = this.melodyPat[barStep];
-    if (m && barIndex !== this.polyBar && this.macro.section !== 'break' && this._layerOn('melody')) {
-      const t = this._swingTime(time, barStep);
-      this.lead.phrase(this.melodyPool[m.noteIdx % this.melodyPool.length], t, {
-        cutoffBase: 2400,
-        velocity: m.vel,
-        decay: m.len,
-        vibratoRate: 4.5,
-      });
+    // Chorus melody: the grid pattern, or a section-long dotted-division
+    // loop (see _pickPoly) when this section is a poly section. Off in the
+    // break, where the bass carries.
+    const melodyOn = this.macro.section !== 'break' && this._layerOn('melody');
+    if (melodyOn && this.poly) {
+      if (barStep % this.polyDiv === 0) {
+        const noteInBar = barStep / this.polyDiv;
+        const barInCycle = barIndex % 4;
+        const seqIdx = (barInCycle * this.polyNotesPerBar + noteInBar) % this.polySeq.length;
+        const ni = ((this.polySeq[seqIdx] % this.melodyPool.length) + this.melodyPool.length) % this.melodyPool.length;
+        const t = this._swingTime(time, barStep);
+        this.lead.phrase(this.melodyPool[ni], t, {
+          cutoffBase: 2400,
+          velocity: noteInBar === 0 ? 0.44 : 0.32,
+          decay: 0.35,
+          vibratoRate: 4.5,
+        });
+      }
+    } else if (melodyOn) {
+      const m = this.melodyPat[barStep];
+      if (m) {
+        const t = this._swingTime(time, barStep);
+        this.lead.phrase(this.melodyPool[m.noteIdx % this.melodyPool.length], t, {
+          cutoffBase: 2400,
+          velocity: m.vel,
+          decay: m.len,
+          vibratoRate: 4.5,
+        });
+      }
     }
   }
 
@@ -246,12 +273,6 @@ export class Conductor {
     }
     this.macro.intensity = clamp01(this.macro.intensity + (this.intensityTarget - this.macro.intensity) * 0.5);
 
-    // Polyrhythmic melody bar.
-    if (this.macro.section === 'peak' && barIndex > 0 && Math.random() < 0.2) {
-      this.polyBar = barIndex;
-      this._playPolyPhrase(time);
-    }
-
     if (barIndex >= this.movementEndBar) {
       this._beginEnding(time);
     }
@@ -275,6 +296,11 @@ export class Conductor {
     // Texture layers join as the section builds. Peak is full immediately;
     // break already drops the whole drum + top-voice set via its section check.
     this.layerGates = name === 'peak' ? {} : { ghost: 1, rim: 2, stab: 1, melody: 2 };
+    // Where the melody is live (groove/peak), it's sometimes the section-long
+    // polyrhythmic dotted loop instead of the grid pattern (rolled with the
+    // section, so it holds for the whole section).
+    this.poly = name !== 'break' && Math.random() < 0.5;
+    if (this.poly) this._pickPoly();
   }
 
   _pickSection() {
@@ -368,27 +394,25 @@ export class Conductor {
     this.ghostHatPat = pat;
   }
 
-  // Polyrhythmic melody phrase: N evenly-spaced notes over M beats. Notes
-  // walk the pool in one direction with an accented head -- a deliberate
-  // figure against the grid, not a timing slip.
-  _playPolyPhrase(time) {
-    const barDur = (4 * 60) / this.bpm;
-    const [n, beats] = pick([[3, 2], [3, 4], [5, 4], [7, 4]]);
-    const span = beats * (barDur / 4);
-    const start = time + (Math.random() < 0.5 ? 0 : barDur / 2);
-    const pool = this.melodyPool;
-    let idx = Math.floor(Math.random() * pool.length);
-    const dir = Math.random() < 0.5 ? 1 : -1;
-    for (let i = 0; i < n; i++) {
-      const t = start + (span * i) / n;
+  // Roll the section's polyrhythmic top voice: a dotted-division sequence
+  // loop. The division is a dotted 8th (every 3rd 16th, 3:2) or a dotted
+  // quarter (every 6th, 3:4) -- both on the 16th grid, so it stays in time.
+  // The melodic contour is four bars long and loops, resetting every four
+  // bars. A section-long figure, not a one-off phrase.
+  _pickPoly() {
+    this.polyDiv = Math.random() < 0.5 ? 3 : 6;
+    this.polyNotesPerBar = Math.floor(15 / this.polyDiv) + 1; // div3 -> 6, div6 -> 3
+    const total = this.polyNotesPerBar * 4;
+    const poolLen = Math.max(1, this.melodyPool.length);
+    const seq = [];
+    let idx = Math.floor(Math.random() * poolLen);
+    let dir = Math.random() < 0.5 ? 1 : -1;
+    for (let i = 0; i < total; i++) {
+      seq.push(idx);
       idx += dir * pick([1, 1, 2]);
-      this.lead.phrase(pool[((idx % pool.length) + pool.length) % pool.length], t, {
-        cutoffBase: 2400,
-        velocity: i === 0 ? 0.42 : 0.3,
-        decay: 0.3,
-        vibratoRate: 5,
-      });
+      if (Math.random() < 0.18) dir *= -1; // the figure turns occasionally
     }
+    this.polySeq = seq;
   }
 
   _pickMovementLength() {
@@ -447,7 +471,11 @@ export class Conductor {
 
   _beginNewMovement(time) {
     this.phase = 'normal';
-    this.bpm = this.userTempo != null ? this.userTempo : this._pickNewTempo();
+    // Tempo is a one-shot slider target or a fresh re-roll -- never pinned
+    // across movements.
+    const t = this.userTempo;
+    this.userTempo = null;
+    this.bpm = t != null ? t : this._pickNewTempo();
     this.root = pick([43, 45, 48, 50, 52, 53]);
     this.mode = pick(['aeolian', 'dorian', 'aeolian', 'major']);
     this.progression = pick(PROGRESSIONS);
@@ -463,8 +491,12 @@ export class Conductor {
     if (this.onMovementStart) this.onMovementStart({ root: this.root, mode: this.mode, bpm: this.bpm });
   }
 
+  // Re-roll the delay time each movement: one of three BPM-locked
+  // spacings (3/4 beat, 1 beat, just under 2 beats for the cascade tail).
+  // This logic is identical across all nine engines.
   _syncDelay() {
-    this.core.setDelayTime((60 / this.bpm) * 0.75);
+    const beats = [0.75, 1, 1.9][Math.floor(Math.random() * 3)];
+    this.core.setDelayTime((60 / this.bpm) * beats);
   }
 
   setTempo(bpm) {

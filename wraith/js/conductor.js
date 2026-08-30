@@ -66,6 +66,7 @@ export class Conductor {
 
     this.baseBpm = 72;
     this.bpm = this.baseBpm;
+    this.userTempo = null; // one-shot slider target, consumed at movement start
     this.beatsPerBar = 4;
     this.stepsPerBeat = 4; // 16th-note grid (for event alignment, not a running arp)
 
@@ -493,7 +494,12 @@ export class Conductor {
     this.progression = PROGRESSIONS[Math.floor(Math.random() * PROGRESSIONS.length)];
     this.chordIndex = 0;
     this.currentDegree = 0;
-    this.bpm = Math.round(clamp(this.baseBpm + (Math.random() - 0.5) * 14, 46, 100));
+    // Tempo is a one-shot slider target or a fresh re-roll around the base
+    // -- never pinned across movements.
+    const t = this.userTempo;
+    this.userTempo = null;
+    this.bpm = t != null ? Math.round(clamp(t, 46, 100))
+      : Math.round(clamp(this.baseBpm + (Math.random() - 0.5) * 14, 46, 100));
     this._syncDelay();
     this.movementBassDensity = clamp01(this.bassDensityBase + (Math.random() - 0.5) * 0.5);
     this._rollCharacter();
@@ -542,18 +548,19 @@ export class Conductor {
     return opts[Math.floor(Math.random() * opts.length)];
   }
 
-  // Keep the shared delay musically locked: just under two beats -- the
-  // slow tempo leaves room for a long cascading echo tail.
+  // Re-roll the delay time each movement: one of three BPM-locked
+  // spacings (3/4 beat, 1 beat, just under 2 beats for the cascade tail).
+  // This logic is identical across all nine engines.
   _syncDelay() {
-    this.core.setDelayTime((60 / this.bpm) * 1.9);
+    const beats = [0.75, 1, 1.9][Math.floor(Math.random() * 3)];
+    this.core.setDelayTime((60 / this.bpm) * beats);
   }
 
   // ---- Public control surface (same names as the ambient version) ----
 
   setTempo(bpm) {
-    this.baseBpm = bpm;
-    this.bpm = Math.round(clamp(bpm, 46, 100));
-    this._syncDelay();
+    // One-shot: applied to the next movement start, then re-rolls freely.
+    this.userTempo = bpm;
   }
 
   setDarknessOverride(v) {

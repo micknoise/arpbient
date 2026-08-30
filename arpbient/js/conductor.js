@@ -39,6 +39,7 @@ export class Conductor {
 
     this.baseBpm = 76;
     this.bpm = this.baseBpm;
+    this.userTempo = null; // one-shot slider target, consumed at movement start
     this.beatsPerBar = 4;
     this.stepsPerBeat = 4; // 16th-note grid
 
@@ -87,6 +88,11 @@ export class Conductor {
     this.movementEndBar = this._pickMovementLength();
     this.padGate = { active: false, endBar: 0, tick: 0 };
     this.bassSixteenths = false;
+    if (this.userTempo != null) {
+      this.baseBpm = this.userTempo;
+      this.bpm = this.baseBpm;
+      this.userTempo = null; // one-shot: applies to this movement only
+    }
     this._syncDelay();
     this.nextStepTime = this.ctx.currentTime + 0.1;
     this.timerID = setInterval(() => this._scheduler(), this.lookahead);
@@ -98,10 +104,12 @@ export class Conductor {
     this.timerID = null;
   }
 
-  // Keep the shared delay musically locked: just under two beats -- the
-  // slow tempo leaves room for a long cascading echo tail.
+  // Re-roll the delay time each movement: one of three BPM-locked
+  // spacings (3/4 beat, 1 beat, just under 2 beats for the cascade tail).
+  // This logic is identical across all nine engines.
   _syncDelay() {
-    this.core.setDelayTime((60 / this.bpm) * 1.9);
+    const beats = [0.75, 1, 1.9][Math.floor(Math.random() * 3)];
+    this.core.setDelayTime((60 / this.bpm) * beats);
   }
 
   _scheduler() {
@@ -364,7 +372,11 @@ export class Conductor {
   _beginNewMovement(time) {
     this.phase = 'normal';
     this.stepCount = 0;
-    this.baseBpm = this._pickNewTempo();
+    // Tempo is a one-shot slider target or a fresh re-roll -- never pinned
+    // across movements.
+    const t = this.userTempo;
+    this.userTempo = null;
+    this.baseBpm = t != null ? t : this._pickNewTempo();
     this.bpm = this.baseBpm;
     this._syncDelay();
     this.root = DARK_ROOTS[Math.floor(Math.random() * DARK_ROOTS.length)];
@@ -422,8 +434,8 @@ export class Conductor {
   }
 
   setTempo(bpm) {
-    this.baseBpm = bpm;
-    this.bpm = bpm;
+    // One-shot: applied to the next movement start, then re-rolls freely.
+    this.userTempo = bpm;
   }
 
   setDarknessOverride(v) {

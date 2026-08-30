@@ -53,8 +53,13 @@ export class Conductor {
     // independent timers.
     this.sectionBar = 0;      // bars since the current section started
     this.layerGates = {};     // additive layer -> sectionBar at which it joins
-    // Bar index whose grid arp is replaced by a polyrhythmic phrase.
-    this.polyBar = -1;
+    // Section-long polyrhythmic top voice (see _pickPoly): a dotted-division
+    // sequence loop that plays in place of the grid arp for the whole
+    // section and resets every four bars.
+    this.poly = false;
+    this.polyDiv = 3;
+    this.polyNotesPerBar = 6;
+    this.polySeq = [];
 
     this.kickPat = [1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0];
     this.hatPat = new Array(16).fill(0);
@@ -98,7 +103,11 @@ export class Conductor {
   start() {
     if (this.running) return;
     this.running = true;
-    if (this.userTempo != null) this.bpm = this.userTempo;
+    if (this.userTempo != null) {
+      this.baseBpm = this.userTempo;
+      this.bpm = this.baseBpm;
+      this.userTempo = null; // one-shot: applies to this movement only
+    }
     this._initMovement();
     this.phase = 'normal';
     this._syncDelay();
@@ -116,7 +125,6 @@ export class Conductor {
     this.chordIndex = 0;
     this.stepCount = 0;
     this.sectionUntilBar = 0;
-    this.polyBar = -1;
     this._advanceChord(this.ctx.currentTime, true);
     this._applySection('noodle');
   }
@@ -181,28 +189,49 @@ export class Conductor {
       });
     }
 
-    // Dense 16th arps (skipped on the polyrhythm bar).
-    const a = this.arpPat[barStep];
-    if (a && barIndex !== this.polyBar && this._layerOn('arp')) {
-      const pool = this.arpPool;
-      // noteIdx random-walks in both directions -- wrap negative indices.
-      const ni = ((a.noteIdx % pool.length) + pool.length) % pool.length;
-      let midi = pool[ni];
-      // Glitch: occasional octave jump.
-      if (Math.random() < this.macro.glitch * 0.1) midi += pick([12, -12, 19]);
-      this.lead.pluck(midi, time, {
-        cutoffBase: 2400 + this.macro.intensity * 1200,
-        cutoffFloor: 300,
-        q: 4,
-        velocity: a.vel,
-        decay: 0.09 + a.vel * 0.05,
-        repeat: this.macro.glitch,
-      });
+    // Dense 16th arps, or -- in a poly section -- a section-long
+    // dotted-division loop (see _pickPoly) that holds for the whole
+    // section and resets every four bars.
+    const arpOn = this._layerOn('arp');
+    if (arpOn && this.poly) {
+      if (barStep % this.polyDiv === 0) {
+        const noteInBar = barStep / this.polyDiv;
+        const barInCycle = barIndex % 4;
+        const seqIdx = (barInCycle * this.polyNotesPerBar + noteInBar) % this.polySeq.length;
+        const pool = this.arpPool;
+        const ni = ((this.polySeq[seqIdx] % pool.length) + pool.length) % pool.length;
+        this.lead.pluck(pool[ni], time, {
+          cutoffBase: 2400 + this.macro.intensity * 1200,
+          cutoffFloor: 300,
+          q: 4,
+          velocity: noteInBar === 0 ? 0.46 : 0.36,
+          decay: 0.14,
+          repeat: this.macro.glitch,
+        });
+      }
+    } else if (arpOn) {
+      const a = this.arpPat[barStep];
+      if (a) {
+        const pool = this.arpPool;
+        // noteIdx random-walks in both directions -- wrap negative indices.
+        const ni = ((a.noteIdx % pool.length) + pool.length) % pool.length;
+        let midi = pool[ni];
+        // Glitch: occasional octave jump.
+        if (Math.random() < this.macro.glitch * 0.1) midi += pick([12, -12, 19]);
+        this.lead.pluck(midi, time, {
+          cutoffBase: 2400 + this.macro.intensity * 1200,
+          cutoffFloor: 300,
+          q: 4,
+          velocity: a.vel,
+          decay: 0.09 + a.vel * 0.05,
+          repeat: this.macro.glitch,
+        });
+      }
     }
 
     // Sparse long tone (break section mostly).
     const l = this.leadPat[barStep];
-    if (l && barIndex !== this.polyBar && this._layerOn('lead')) {
+    if (l && this._layerOn('lead')) {
       this.lead.note(this.scalePool[l.noteIdx % this.scalePool.length], time, {
         cutoffBase: 1600 + this.macro.intensity * 800,
         q: 3,
@@ -227,14 +256,6 @@ export class Conductor {
       this.sectionUntilBar = barIndex + randInt(4, 8);
     } else if (barIndex > 0) {
       this.sectionBar++;
-    }
-
-    // Polyrhythmic arp phrase (3-against-2, 5-against-4, ...) against the grid.
-    // Only against a live grid arp -- an orphaned off-grid phrase with the
-    // arp gated off reads as a timing error.
-    if (barIndex > 0 && this._layerOn('arp') && Math.random() < 0.18) {
-      this.polyBar = barIndex;
-      this._playPolyPhrase(time);
     }
 
     // Macro drift
@@ -272,6 +293,10 @@ export class Conductor {
       name === 'noodle' ? {} :
       name === 'break' ? { arp: 0, lead: 1, hat: 99, rim: 99 } :
       { arp: 2, hat: 2, rim: 3, lead: 3 };
+    // The arp top voice is sometimes the section-long polyrhythmic dotted
+    // loop instead of the grid pattern (rolled with the section).
+    this.poly = Math.random() < 0.4;
+    if (this.poly) this._pickPoly();
   }
 
   _pickSection() {
@@ -379,30 +404,25 @@ export class Conductor {
     this.leadPat = pat;
   }
 
-  // Polyrhythmic arp phrase: N evenly-spaced notes over M beats, off grid.
-  // Polyrhythmic arp phrase: N evenly-spaced notes over M beats. Notes walk
-  // the pool in one direction with an accented head -- a deliberate figure
-  // against the grid, not a timing slip.
-  _playPolyPhrase(time) {
-    const barDur = (4 * 60) / this.bpm;
-    const [n, beats] = pick([[3, 2], [5, 4], [7, 4], [5, 2]]);
-    const span = beats * (barDur / 4);
-    const start = time + (Math.random() < 0.5 ? 0 : barDur / 2);
-    const pool = this.arpPool;
-    let idx = Math.floor(Math.random() * pool.length);
-    const dir = Math.random() < 0.5 ? 1 : -1;
-    for (let i = 0; i < n; i++) {
-      const t = start + (span * i) / n;
+  // Roll the section's polyrhythmic top voice: a dotted-division sequence
+  // loop. The division is a dotted 8th (every 3rd 16th, 3:2) or a dotted
+  // quarter (every 6th, 3:4) -- both on the 16th grid, so it stays in time.
+  // The melodic contour is four bars long and loops, resetting every four
+  // bars. A section-long figure, not a one-off phrase.
+  _pickPoly() {
+    this.polyDiv = Math.random() < 0.5 ? 3 : 6;
+    this.polyNotesPerBar = Math.floor(15 / this.polyDiv) + 1; // div3 -> 6, div6 -> 3
+    const total = this.polyNotesPerBar * 4;
+    const poolLen = Math.max(1, this.arpPool.length);
+    const seq = [];
+    let idx = Math.floor(Math.random() * poolLen);
+    let dir = Math.random() < 0.5 ? 1 : -1;
+    for (let i = 0; i < total; i++) {
+      seq.push(idx);
       idx += dir * pick([1, 1, 2]);
-      this.lead.pluck(pool[((idx % pool.length) + pool.length) % pool.length], t, {
-        cutoffBase: 2800,
-        cutoffFloor: 300,
-        q: 5,
-        velocity: i === 0 ? 0.46 : 0.36,
-        decay: 0.14,
-        repeat: this.macro.glitch,
-      });
+      if (Math.random() < 0.18) dir *= -1; // the figure turns occasionally
     }
+    this.polySeq = seq;
   }
 
   _pickMovementLength() {
@@ -465,7 +485,11 @@ export class Conductor {
 
   _beginNewMovement(time) {
     this.phase = 'normal';
-    this.baseBpm = this.userTempo != null ? this.userTempo : this._pickNewTempo();
+    // Tempo is a one-shot slider target or a fresh re-roll -- never pinned
+    // across movements.
+    const t = this.userTempo;
+    this.userTempo = null;
+    this.baseBpm = t != null ? t : this._pickNewTempo();
     this.bpm = this.baseBpm;
     this.root = pick([40, 43, 45, 47, 48]);
     this.mode = this._pickMode();
@@ -478,9 +502,12 @@ export class Conductor {
     if (this.onMovementStart) this.onMovementStart({ root: this.root, mode: this.mode, bpm: this.bpm });
   }
 
-  // Sync the shared delay to the tempo (one beat -- classic IDM spacing).
+  // Re-roll the delay time each movement: one of three BPM-locked
+  // spacings (3/4 beat, 1 beat, just under 2 beats for the cascade tail).
+  // This logic is identical across all nine engines.
   _syncDelay() {
-    this.core.setDelayTime(60 / this.bpm);
+    const beats = [0.75, 1, 1.9][Math.floor(Math.random() * 3)];
+    this.core.setDelayTime((60 / this.bpm) * beats);
   }
 
   // Target tempo only -- applied at the next movement boundary (or on the
