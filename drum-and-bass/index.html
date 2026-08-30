@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Drum &amp; Bass</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%23040a08'/%3E%3Cpath d='M2 11 L5 6 L8 11 L11 4 L14 9' fill='none' stroke='%232eff9e' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='2' cy='11' r='1.4' fill='%23ffd60a'/%3E%3C/svg%3E" />
+<link rel="stylesheet" href="style.css" />
+<link rel="stylesheet" href="theme.css" />
+</head>
+<body>
+  <canvas id="viz"></canvas>
+  <div class="vignette"></div>
+  <div class="scanlines"></div>
+
+  <div class="overlay">
+    <div class="title-block">
+      <p class="title">DRUM &amp; BASS</p>
+      <p class="subtitle">endless 174 · 2-step break · reese bass · liquid top</p>
+    </div>
+
+    <div class="panel">
+      <button id="playBtn">PLAY</button>
+      <div class="controls">
+        <div class="control-row">
+          <label for="vol">Volume</label>
+          <input id="vol" type="range" min="0" max="1" step="0.01" value="0.8" />
+        </div>
+        <div class="control-row">
+          <label for="reese">Reese</label>
+          <input id="reese" type="range" min="0" max="1" step="0.01" value="0.55" />
+        </div>
+        <div class="control-row">
+          <label for="liquid">Liquid</label>
+          <input id="liquid" type="range" min="0" max="1" step="0.01" value="0.6" />
+        </div>
+        <div class="control-row">
+          <label for="tempo">Tempo</label>
+          <input id="tempo" type="range" min="168" max="176" step="1" value="174" />
+        </div>
+      </div>
+      <div id="status"></div>
+    </div>
+  </div>
+
+  <div class="hint">click play and let it run &middot; headphones recommended &middot; it never repeats the same way twice</div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
