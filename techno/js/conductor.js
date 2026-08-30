@@ -49,9 +49,12 @@ export class Conductor {
     this.intensityTarget = 0.3;
     this.sectionUntilBar = 0;
 
-    // The bass ostinato is held for 4-8 bars before it changes -- repeated
-    // phrases are what lock the groove in; per-bar mutation reads as mush.
-    this.bassHoldBars = randInt(4, 8);
+    // Section model: a section change is one concert event (bass + top
+    // voice + drums + levels all re-rolled together), and within a section
+    // the groove builds by adding layers bar by bar instead of swapping
+    // individual parts on their own timers -- nothing drifts out of sync.
+    this.sectionBar = 0;      // bars since the current section started
+    this.layerGates = {};     // additive layer -> sectionBar at which it joins
     // Set to the bar index whose grid lead is replaced by a polyrhythmic
     // phrase scheduled off the 16th grid.
     this.polyBar = -1;
@@ -112,14 +115,7 @@ export class Conductor {
     this.sectionUntilBar = 0;
     this.polyBar = -1;
     this._advanceChord(this.ctx.currentTime, true);
-    this._makeBassPattern();
-    this._makeLeadPattern();
-    this._makeHatPattern();
-    this.kickPat = [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0];
-    this.clapPat = [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0];
-    this.rimPat = new Array(16).fill(0);
-    this.stabPat = new Array(16).fill(0);
-    this._applyLevels();
+    this._applySection('main');
   }
 
   _scheduler() {
@@ -162,7 +158,7 @@ export class Conductor {
         pan: barStep % 8 === 2 ? -0.3 : 0.3,
       });
     }
-    if (this.hatOpenPat[barStep] > 0) {
+    if (this.hatOpenPat[barStep] > 0 && this._layerOn('openHat')) {
       this.kit.playHat(time, {
         velocity: this.hatOpenPat[barStep],
         frequency: 7000,
@@ -172,7 +168,7 @@ export class Conductor {
       });
     }
 
-    if (this.rimPat[barStep] > 0) {
+    if (this.rimPat[barStep] > 0 && this._layerOn('rim')) {
       this.kit.playRim(time, { velocity: this.rimPat[barStep], frequency: 900, pan: 0.2 });
     }
 
@@ -182,20 +178,20 @@ export class Conductor {
       const midi = this.root - 12 + b.pc;
       const acid = this.macro.acid;
       this.bass.playNote(midi, time, {
-        cutoffBase: 500 + acid * 1400 + this.macro.intensity * 500,
+        cutoffBase: 500 + acid * 1000 + this.macro.intensity * 300,
         cutoffFloor: 100 + acid * 80,
-        q: 8 + acid * 14 + this.macro.intensity * 6,
-        velocity: b.vel * (0.8 + this.macro.intensity * 0.3),
+        q: 5 + acid * 6 + this.macro.intensity * 3,
+        velocity: Math.min(0.85, b.vel * (0.8 + this.macro.intensity * 0.2)),
         decay: b.len,
-        subLevel: 0.6,
-        driveLevel: 0.6 + acid * 0.5,
+        subLevel: 0.4,
+        driveLevel: 0.4 + acid * 0.3,
       });
     }
 
     // Pluck arpeggio (main section) and syncopated stabs (peak/breakdown).
     // The grid lead is skipped on the bar a polyrhythmic phrase replaces it.
     const l = this.leadPat[barStep];
-    if (l && this.macro.section === 'main' && barIndex !== this.polyBar) {
+    if (l && this.macro.section === 'main' && barIndex !== this.polyBar && this._layerOn('top')) {
       this.lead.pluck(this.leadPool[l.noteIdx % this.leadPool.length], time, {
         cutoffBase: 1800 + this.macro.intensity * 1200,
         q: 4 + this.macro.acid * 5,
@@ -205,7 +201,7 @@ export class Conductor {
     }
 
     const sv = this.stabPat[barStep];
-    if (sv > 0 && this.macro.section !== 'main') {
+    if (sv > 0 && this.macro.section !== 'main' && this._layerOn('top')) {
       this.lead.stab(this.stabNotes, time, {
         cutoffBase: 1600 + this.macro.intensity * 800,
         q: 2.5,
@@ -222,30 +218,15 @@ export class Conductor {
     // Bar 0 already has the chord established at movement start.
     if (barIndex > 0) this._advanceChord(time);
 
-    // Section switches: main (pluck arp) vs peak (stabs) vs breakdown (less).
-    if (barIndex >= this.sectionUntilBar && barIndex > 0) {
-      const r = Math.random();
-      if (r < 0.5) this.macro.section = 'main';
-      else if (r < 0.85) this.macro.section = 'peak';
-      else this.macro.section = 'breakdown';
+    // A section change is one concert event: bass + top voice + drums +
+    // levels all re-rolled together. Between changes the groove is stable
+    // and only builds by adding layers (see _layerOn).
+    if (barIndex > 0 && barIndex >= this.sectionUntilBar) {
+      this._applySection(this._pickSection());
       this.sectionUntilBar = barIndex + randInt(4, 8);
-      this._applyLevels();
-      this._makeLeadPattern();
-      this._makeStabPattern();
+    } else if (barIndex > 0) {
+      this.sectionBar++;
     }
-
-    // Mutations -- the bass ostinato is deliberately stable: it holds its
-    // phrase for 4-8 bars (a repeated phrase is what locks the groove in)
-    // and only then takes a new one. Hats/kick stay fluid.
-    if (Math.random() < 0.3) this._mutateKick();
-    if (Math.random() < 0.25) this._mutateRim();
-    this.bassHoldBars--;
-    if (this.bassHoldBars <= 0) {
-      this._makeBassPattern();
-      this.bassHoldBars = randInt(4, 8);
-    }
-    if (Math.random() < 0.25) this._makeHatPattern();
-    if (this.macro.section === 'main' && Math.random() < 0.35) this._makeLeadPattern();
 
     // Sometimes let the lead run a polyrhythmic phrase against the 16th
     // grid (3-against-2, 5-against-4, ...) instead of the grid pattern.
@@ -274,6 +255,43 @@ export class Conductor {
     if (barIndex >= this.movementEndBar) {
       this._beginEnding(time);
     }
+  }
+
+  // One concert event: pick the section's full groove (bass + top voice +
+  // drums + levels) and reset the in-section layer build.
+  _applySection(name) {
+    this.macro.section = name;
+    this.sectionBar = 0;
+    this._makeBassPattern();
+    this._makeLeadPattern();
+    this._makeStabPattern();
+    this._makeHatPattern();
+    // Kick + clap are the constant core; the hot section adds a pickup.
+    this.kickPat = [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0];
+    if (name === 'peak') this.kickPat[15] = 0.7;
+    this.clapPat = [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0];
+    this.rimPat = new Array(16).fill(0);
+    this._mutateRim();
+    this._applyLevels();
+    // Additive layers join as the section builds: open hats, rim, and the
+    // top voice (pluck in main / stab elsewhere). Peak is full immediately;
+    // breakdown stays sparse and only lets the top voice in late.
+    this.layerGates =
+      name === 'peak' ? {} :
+      name === 'breakdown' ? { openHat: 3, rim: 99, top: 2 } :
+      { openHat: 1, rim: 2, top: 1 };
+  }
+
+  _pickSection() {
+    const r = Math.random();
+    if (r < 0.5) return 'main';
+    if (r < 0.85) return 'peak';
+    return 'breakdown';
+  }
+
+  // An additive layer plays once the section has built far enough.
+  _layerOn(name) {
+    return this.sectionBar >= (this.layerGates[name] ?? 0);
   }
 
   _advanceChord(time, silent = false) {
@@ -343,6 +361,17 @@ export class Conductor {
   }
 
   _makeHatPattern() {
+    if (this.macro.section === 'breakdown') {
+      // Sparse closed hats; the open hats exist but only join via the gate.
+      const pat = new Array(16).fill(0);
+      [2, 10].forEach((s) => (pat[s] = 0.4));
+      const open = new Array(16).fill(0);
+      open[6] = 0.3;
+      open[14] = 0.35;
+      this.hatPat = pat;
+      this.hatOpenPat = open;
+      return;
+    }
     const style = this.macro.intensity > 0.6 ? '16' : pick(['off8', 'off8', '16', 'sparse']);
     const pat = new Array(16).fill(0);
     const open = new Array(16).fill(0);
@@ -359,24 +388,6 @@ export class Conductor {
     }
     this.hatPat = pat;
     this.hatOpenPat = open;
-  }
-
-  _mutateKick() {
-    const r = Math.random();
-    if (r < 0.25) {
-      // 16th pickup into the next bar
-      this.kickPat[15] = 0.7;
-    } else if (r < 0.4) {
-      this.kickPat[15] = 0;
-      this.kickPat[14] = 0.75;
-    } else if (r < 0.55) {
-      // ghost double on a beat
-      const beat = pick([1, 2, 3]) * 4 + 2;
-      this.kickPat[beat] = 0.5;
-    } else {
-      this.kickPat[15] = 0;
-      this.kickPat[14] = 0;
-    }
   }
 
   _mutateRim() {
@@ -417,13 +428,13 @@ export class Conductor {
 
   _applyLevels() {
     const s = this.macro.section;
-    const bassL = s === 'breakdown' ? 0.35 : 0.5 + this.macro.intensity * 0.2;
-    const leadL = s === 'main' ? 0.35 : s === 'peak' ? 0.45 : 0.15;
-    const drumL = s === 'breakdown' ? 0.7 : 0.9;
+    const bassL = s === 'breakdown' ? 0.28 : 0.34 + this.macro.intensity * 0.08;
+    const leadL = s === 'main' ? 0.4 : s === 'peak' ? 0.5 : 0.2;
+    const drumL = s === 'breakdown' ? 0.75 : 0.9;
     this.bass.setLevel(clamp01(bassL));
     this.lead.setLevel(clamp01(leadL));
     this.kit.setLevel(clamp01(drumL));
-    this.kit.setKickLevel(0.95);
+    this.kit.setKickLevel(1.0);
   }
 
   // The ending: the groove thins to kick-and-open-hat, a riser swells,
@@ -496,7 +507,7 @@ export class Conductor {
 
   setAcidity(v) {
     this.macro.acid = clamp01(v);
-    this.bass.setDrive(0.2 + v * 0.9);
+    this.bass.setDrive(0.15 + v * 0.45);
   }
 
   setDensity(v) {

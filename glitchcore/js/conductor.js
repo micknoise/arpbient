@@ -46,8 +46,12 @@ export class Conductor {
     };
     this.sectionUntilBar = 0;
 
-    // Punchy bass ostinato held 4-8 bars before it re-syncopates.
-    this.bassHoldBars = randInt(4, 8);
+    // Section model: a change is one concert event (drums + bass + arps +
+    // hats + stabs re-rolled together); within a section the groove builds
+    // by adding texture layers rather than swapping parts on independent
+    // timers. The bass now holds for the full section (4-8 bars).
+    this.sectionBar = 0;
+    this.layerGates = {};
     // Bar index whose grid arp is replaced by a polyrhythmic phrase.
     this.polyBar = -1;
 
@@ -113,12 +117,7 @@ export class Conductor {
     this.sectionUntilBar = 0;
     this.polyBar = -1;
     this._advanceChord(this.ctx.currentTime, true);
-    this._makeBassPattern();
-    this._makeArpPattern();
-    this._makeHatPattern();
-    this._mutateDrums();
-    this._makeStabPattern();
-    this._applyLevels();
+    this._applySection('chop');
   }
 
   _scheduler() {
@@ -164,7 +163,7 @@ export class Conductor {
       });
     }
 
-    if (this.rimPat[barStep] > 0) {
+    if (this.rimPat[barStep] > 0 && this._layerOn('rim')) {
       this.kit.playRim(time, { velocity: this.rimPat[barStep], frequency: pick([700, 1000, 1400]), pan: -0.4 });
     }
 
@@ -186,7 +185,9 @@ export class Conductor {
     // Stutter lead -- blips that sometimes fire as micro-repeats.
     const a = this.arpPat[barStep];
     if (a && barIndex !== this.polyBar) {
-      let midi = this.arpPool[a.noteIdx % this.arpPool.length];
+      // noteIdx random-walks in both directions -- wrap negative indices.
+      const ni = ((a.noteIdx % this.arpPool.length) + this.arpPool.length) % this.arpPool.length;
+      let midi = this.arpPool[ni];
       if (Math.random() < this.macro.stutter * 0.12) midi += pick([12, -12, 19, -5]);
       if (Math.random() < this.macro.stutter * 0.3) {
         this.lead.stutter(midi, time, {
@@ -206,7 +207,7 @@ export class Conductor {
 
     // Detuned stab chords
     const sp = this.stabPat[barStep];
-    if (sp > 0) {
+    if (sp > 0 && this._layerOn('stab')) {
       this.lead.stab(this.stabNotes, time, {
         cutoffBase: 2600 + this.macro.intensity * 900,
         velocity: sp * 0.5,
@@ -234,25 +235,14 @@ export class Conductor {
     if (barIndex > 0) this._advanceChord(time);
 
     // Section rotation: chop (drum chaos) / build / detonate (full) /
-    // hold (drums off, stutters float).
-    if (barIndex >= this.sectionUntilBar && barIndex > 0) {
-      const r = Math.random();
-      this.macro.section = r < 0.4 ? 'chop' : r < 0.65 ? 'build' : r < 0.85 ? 'detonate' : 'hold';
+    // hold (drums off, stutters float). A change is one concert event --
+    // drums + bass + arps + hats + stabs re-roll together, the bass holds
+    // for the full section, and rim + stabs join as the groove builds.
+    if (barIndex > 0 && barIndex >= this.sectionUntilBar) {
+      this._applySection(this._pickSection());
       this.sectionUntilBar = barIndex + randInt(4, 8);
-      this._makeSectionPatterns();
-      this._applyLevels();
-    }
-
-    // Drums mutate a LOT -- that's the breakcore fluidity. Bass holds 4-8
-    // bars (the anchor), arps/stabs re-roll.
-    if (Math.random() < 0.5) this._mutateDrums();
-    if (Math.random() < 0.6) this._makeArpPattern();
-    if (Math.random() < 0.4) this._makeStabPattern();
-    if (Math.random() < 0.3) this._makeHatPattern();
-    this.bassHoldBars--;
-    if (this.bassHoldBars <= 0) {
-      this._makeBassPattern();
-      this.bassHoldBars = randInt(4, 8);
+    } else if (barIndex > 0) {
+      this.sectionBar++;
     }
 
     // Polyrhythmic stutter phrase against the grid.
@@ -268,6 +258,37 @@ export class Conductor {
     if (barIndex >= this.movementEndBar) {
       this._beginEnding(time);
     }
+  }
+
+  // One concert event: re-roll the section's full groove (drums + bass +
+  // arps + hats + stabs + levels) together and reset the in-section build.
+  _applySection(name) {
+    this.macro.section = name;
+    this.sectionBar = 0;
+    this._makeSectionPatterns();
+    if (name !== 'hold') this._makeRimPattern();
+    this._makeBassPattern();
+    this._makeArpPattern();
+    this._makeHatPattern();
+    this._makeStabPattern();
+    if (name === 'hold') this.stabPat = new Array(16).fill(0); // stutters float
+    this._applyLevels();
+    // Detonation lands full immediately; chop and build add rim + stabs as
+    // the section builds. (Hold is drumless, so its patterns are already 0.)
+    this.layerGates =
+      name === 'detonate' ? {} :
+      name === 'build' ? { rim: 2, stab: 3 } :
+      { rim: 1, stab: 2 };
+  }
+
+  _pickSection() {
+    const r = Math.random();
+    return r < 0.4 ? 'chop' : r < 0.65 ? 'build' : r < 0.85 ? 'detonate' : 'hold';
+  }
+
+  // A texture layer plays once the section has built far enough.
+  _layerOn(name) {
+    return this.sectionBar >= (this.layerGates[name] ?? 0);
   }
 
   _advanceChord(time, silent = false) {
@@ -349,7 +370,12 @@ export class Conductor {
     }
     this.snarePat = snare;
 
-    // Rim blips.
+    this._makeRimPattern();
+  }
+
+  // Rim blips, re-rolled with the section.
+  _makeRimPattern() {
+    const density = this.macro.breaks;
     const rim = new Array(16).fill(0);
     const rims = randInt(0, Math.round(2 + density * 4));
     for (let i = 0; i < rims; i++) {
@@ -393,6 +419,7 @@ export class Conductor {
     if (s === 'hold') {
       this.kickPat = new Array(16).fill(0);
       this.snarePat = new Array(16).fill(0);
+      this.rimPat = new Array(16).fill(0);
     } else if (s === 'build') {
       this.kickPat = [1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0];
       this.snarePat = [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0];

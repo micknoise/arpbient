@@ -44,8 +44,13 @@ export class Conductor {
     };
     this.sectionUntilBar = 0;
 
-    // Rolling Reese ostinato held 4-8 bars before it re-syncopates.
-    this.bassHoldBars = randInt(4, 8);
+    // Section model: the 2-step stays locked, and a section change is one
+    // concert event (bass + arps + lead + hats + rim re-rolled together);
+    // within a section the groove builds by adding layers rather than
+    // swapping parts on independent timers. The Reese ostinato now holds
+    // for the full section (4-8 bars).
+    this.sectionBar = 0;
+    this.layerGates = {};
     // Bar index whose grid arp is replaced by a polyrhythmic phrase.
     this.polyBar = -1;
 
@@ -118,14 +123,7 @@ export class Conductor {
     this.sectionUntilBar = 0;
     this.polyBar = -1;
     this._advanceChord(this.ctx.currentTime, true);
-    this._makeBassPattern();
-    this._makeArpPattern();
-    this._makeHatPattern();
-    this._makeLeadPattern();
-    this.kickPat = [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0];
-    this.snarePat = [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0];
-    this.rimPat = new Array(16).fill(0);
-    this._applyLevels();
+    this._applySection('groove');
   }
 
   _scheduler() {
@@ -159,7 +157,7 @@ export class Conductor {
     const sv = this.snarePat[barStep];
     if (sv > 0) this.kit.playSnare(time, { velocity: sv, noiseFreq: 1900 });
 
-    if (this.hatPat[barStep] > 0) {
+    if (this.hatPat[barStep] > 0 && this._layerOn('hat')) {
       this.kit.playHat(time, {
         velocity: this.hatPat[barStep],
         frequency: 10500,
@@ -168,7 +166,7 @@ export class Conductor {
       });
     }
 
-    if (this.rimPat[barStep] > 0) {
+    if (this.rimPat[barStep] > 0 && this._layerOn('rim')) {
       this.kit.playRim(time, { velocity: this.rimPat[barStep], frequency: 900, pan: -0.3 });
     }
 
@@ -190,7 +188,9 @@ export class Conductor {
     // Bright syncopated arp (skipped on the polyrhythm bar)
     const a = this.arpPat[barStep];
     if (a && barIndex !== this.polyBar) {
-      this.lead.pluck(this.arpPool[a.noteIdx % this.arpPool.length], time, {
+      // noteIdx random-walks in both directions -- wrap negative indices.
+      const ni = ((a.noteIdx % this.arpPool.length) + this.arpPool.length) % this.arpPool.length;
+      this.lead.pluck(this.arpPool[ni], time, {
         cutoffBase: 2600 + this.macro.intensity * 900,
         velocity: a.vel,
         decay: 0.18 + a.vel * 0.08,
@@ -217,26 +217,16 @@ export class Conductor {
     if (barIndex > 0) this._advanceChord(time);
 
     // Section rotation: groove (full 2-step) / break (drums off) / liquid
-    // (long singing notes, sparse bass).
-    if (barIndex >= this.sectionUntilBar && barIndex > 0) {
-      const r = Math.random();
-      this.macro.section = r < 0.5 ? 'groove' : r < 0.75 ? 'break' : 'liquid';
+    // (long singing notes, sparse bass). A change is one concert event --
+    // the 2-step stays locked while bass + arps + lead + hats + rim re-roll
+    // together, the Reese holds for the full section, and hats + rim join
+    // as the groove builds.
+    if (barIndex > 0 && barIndex >= this.sectionUntilBar) {
+      this._applySection(this._pickSection());
       this.sectionUntilBar = barIndex + randInt(4, 8);
-      this._makeSectionPatterns();
-      this._applyLevels();
+    } else if (barIndex > 0) {
+      this.sectionBar++;
     }
-
-    // Drums stay mostly locked to the 2-step (that's the DnB anchor), but
-    // the fill/ghost texture mutates. Bass holds 4-8 bars.
-    if (Math.random() < 0.25) this._mutateBreak();
-    if (Math.random() < 0.35) this._makeHatPattern();
-    this.bassHoldBars--;
-    if (this.bassHoldBars <= 0) {
-      this._makeBassPattern();
-      this.bassHoldBars = randInt(4, 8);
-    }
-    if (Math.random() < 0.5) this._makeArpPattern();
-    if (Math.random() < 0.5) this._makeLeadPattern();
 
     // Polyrhythmic lead phrase against the grid.
     if (barIndex > 0 && Math.random() < 0.15) {
@@ -251,6 +241,37 @@ export class Conductor {
     if (barIndex >= this.movementEndBar) {
       this._beginEnding(time);
     }
+  }
+
+  // One concert event: re-roll the groove around the locked 2-step (bass +
+  // arps + lead + hats + rim + levels) together and reset the in-section
+  // build. Break is drumless; the rest builds hats + rim as it goes.
+  _applySection(name) {
+    this.macro.section = name;
+    this.sectionBar = 0;
+    this._makeBassPattern();
+    this._makeArpPattern();
+    this._makeLeadPattern();
+    this._makeSectionPatterns(); // 2-step core / drumless break
+    if (name !== 'break') {
+      this._mutateBreak(); // ghost kick/snare/rim around the locked 2-step
+      this._makeHatPattern();
+    }
+    this._applyLevels();
+    this.layerGates =
+      name === 'break' ? {} :
+      name === 'liquid' ? { hat: 2, rim: 3 } :
+      { hat: 1, rim: 1 };
+  }
+
+  _pickSection() {
+    const r = Math.random();
+    return r < 0.5 ? 'groove' : r < 0.75 ? 'break' : 'liquid';
+  }
+
+  // A texture layer plays once the section has built far enough.
+  _layerOn(name) {
+    return this.sectionBar >= (this.layerGates[name] ?? 0);
   }
 
   _advanceChord(time, silent = false) {
@@ -360,6 +381,7 @@ export class Conductor {
       this.kickPat = new Array(16).fill(0);
       this.snarePat = new Array(16).fill(0);
       this.hatPat = new Array(16).fill(0);
+      this.rimPat = new Array(16).fill(0);
     } else if (s === 'liquid') {
       this.kickPat = [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0];
       this.snarePat = [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0];

@@ -46,8 +46,11 @@ export class Conductor {
     this.intensityTarget = 0.3;
     this.sectionUntilBar = 0;
 
-    // Bass ostinato held for 4-8 bars (repetition locks the groove in).
-    this.bassHoldBars = randInt(4, 8);
+    // Section model: a change is one concert event (bass + stabs + melody +
+    // hats re-rolled together); within a section the groove builds by adding
+    // texture layers rather than swapping parts on independent timers.
+    this.sectionBar = 0;
+    this.layerGates = {};
     this.polyBar = -1;
 
     // 16-step patterns.
@@ -109,17 +112,8 @@ export class Conductor {
     this.stepCount = 0;
     this.sectionUntilBar = 0;
     this.polyBar = -1;
-    this.bassHoldBars = randInt(4, 8);
     this._advanceChord(this.ctx.currentTime, true);
-    this._makeBassPattern();
-    this._makeStabPattern();
-    this._makeMelodyPattern();
-    this._makeGhostHats();
-    this.kickPat = [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0];
-    this.clapPat = [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0];
-    this.openHatPat = [0, 0, 0.5, 0, 0, 0, 0.5, 0, 0, 0, 0.5, 0, 0, 0, 0.5, 0];
-    this.rimPat = new Array(16).fill(0);
-    this._applyLevels();
+    this._applySection('groove');
   }
 
   _scheduler() {
@@ -167,12 +161,12 @@ export class Conductor {
       }
 
       const gh = this.ghostHatPat[barStep];
-      if (gh > 0) {
+      if (gh > 0 && this._layerOn('ghost')) {
         const t = this._swingTime(time, barStep);
         this.kit.playHat(t, { velocity: gh, frequency: 9500, decay: 0.035, pan: barStep % 8 < 4 ? -0.3 : 0.3 });
       }
 
-      if (this.rimPat[barStep] > 0) {
+      if (this.rimPat[barStep] > 0 && this._layerOn('rim')) {
         const t = this._swingTime(time, barStep);
         this.kit.playRim(t, { velocity: this.rimPat[barStep], frequency: 1100, pan: 0.25 });
       }
@@ -196,7 +190,7 @@ export class Conductor {
 
     // Chord stabs (swung) -- off in the break, where the bass carries.
     const sv = this.stabPat[barStep];
-    if (sv > 0 && this.macro.section !== 'break') {
+    if (sv > 0 && this.macro.section !== 'break' && this._layerOn('stab')) {
       const t = this._swingTime(time, barStep);
       this.lead.stab(this.stabNotes, t, {
         cutoffBase: 1400 + this.macro.warmth * 800 + this.macro.intensity * 500,
@@ -208,7 +202,7 @@ export class Conductor {
 
     // Sparse chorus melody (skipped on a polyrhythmic bar).
     const m = this.melodyPat[barStep];
-    if (m && barIndex !== this.polyBar && this.macro.section !== 'break') {
+    if (m && barIndex !== this.polyBar && this.macro.section !== 'break' && this._layerOn('melody')) {
       const t = this._swingTime(time, barStep);
       this.lead.phrase(this.melodyPool[m.noteIdx % this.melodyPool.length], t, {
         cutoffBase: 2400,
@@ -225,28 +219,16 @@ export class Conductor {
     // One chord per bar (bar 0 already has the movement-start chord).
     if (barIndex > 0) this._advanceChord(time);
 
-    // Section rotation: groove / break / peak.
-    if (barIndex >= this.sectionUntilBar && barIndex > 0) {
-      const r = Math.random();
-      this.macro.section = r < 0.5 ? 'groove' : r < 0.85 ? 'peak' : 'break';
+    // A section change is one concert event: bass + stabs + melody + hats
+    // all re-rolled together. Between changes the groove is stable and only
+    // builds by adding texture layers (see _layerOn).
+    if (barIndex > 0 && barIndex >= this.sectionUntilBar) {
+      this._applySection(this._pickSection());
       this.sectionUntilBar = barIndex + randInt(4, 8);
-      this._applyLevels();
-      this._makeStabPattern();
-      this._makeMelodyPattern();
+    } else if (barIndex > 0) {
+      this.sectionBar++;
     }
 
-    // Mutations -- bass ostinato held 4-8 bars; hats/stabs stay fluid.
-    this.bassHoldBars--;
-    if (this.bassHoldBars <= 0) {
-      this._makeBassPattern();
-      this.bassHoldBars = randInt(4, 8);
-    }
-    if (Math.random() < 0.2) this._makeGhostHats();
-    if (Math.random() < 0.3) this._makeStabPattern();
-    if (Math.random() < 0.25) this._mutateClap();
-    if (this.macro.section !== 'break' && Math.random() < 0.3) this._makeMelodyPattern();
-
-    // Occasionally swap a clap for an off-beat ghost for variation.
     // Intensity drift.
     if (!this._surging) {
       if (Math.random() < 0.12) {
@@ -273,6 +255,36 @@ export class Conductor {
     if (barIndex >= this.movementEndBar) {
       this._beginEnding(time);
     }
+  }
+
+  // One concert event: pick the section's full groove (bass + stabs +
+  // melody + hats + levels) and reset the in-section layer build.
+  _applySection(name) {
+    this.macro.section = name;
+    this.sectionBar = 0;
+    this._makeBassPattern();
+    this._makeStabPattern();
+    this._makeMelodyPattern();
+    this._makeGhostHats();
+    // Kick + clap + off-beat open hats are the constant house core.
+    this.kickPat = [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0];
+    this.clapPat = [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0];
+    this.openHatPat = [0, 0, 0.5, 0, 0, 0, 0.5, 0, 0, 0, 0.5, 0, 0, 0, 0.5, 0];
+    this.rimPat = new Array(16).fill(0);
+    this._applyLevels();
+    // Texture layers join as the section builds. Peak is full immediately;
+    // break already drops the whole drum + top-voice set via its section check.
+    this.layerGates = name === 'peak' ? {} : { ghost: 1, rim: 2, stab: 1, melody: 2 };
+  }
+
+  _pickSection() {
+    const r = Math.random();
+    return r < 0.5 ? 'groove' : r < 0.85 ? 'peak' : 'break';
+  }
+
+  // A texture layer plays once the section has built far enough.
+  _layerOn(name) {
+    return this.sectionBar >= (this.layerGates[name] ?? 0);
   }
 
   _advanceChord(silent = false) {
@@ -356,19 +368,6 @@ export class Conductor {
     this.ghostHatPat = pat;
   }
 
-  _mutateClap() {
-    const r = Math.random();
-    if (r < 0.3) {
-      this.clapPat[11] = 0.3; // off-beat ghost
-    } else if (r < 0.5) {
-      this.clapPat[11] = 0;
-      this.clapPat[15] = 0.28;
-    } else {
-      this.clapPat[11] = 0;
-      this.clapPat[15] = 0;
-    }
-  }
-
   _playPolyPhrase(time) {
     const barDur = (4 * 60) / this.bpm;
     const [n, beats] = pick([[3, 2], [3, 4], [5, 4], [7, 4]]);
@@ -395,13 +394,13 @@ export class Conductor {
 
   _applyLevels() {
     const s = this.macro.section;
-    const bassL = s === 'break' ? 0.6 : 0.5 + this.macro.intensity * 0.15;
-    const leadL = s === 'peak' ? 0.5 : s === 'break' ? 0.25 : 0.38;
+    const bassL = s === 'break' ? 0.42 : 0.34 + this.macro.intensity * 0.08;
+    const leadL = s === 'peak' ? 0.5 : s === 'break' ? 0.3 : 0.4;
     const drumL = s === 'break' ? 0.0 : 0.9;
     this.bass.setLevel(clamp01(bassL));
     this.lead.setLevel(clamp01(leadL));
     this.kit.setLevel(clamp01(drumL));
-    this.kit.setKickLevel(0.95);
+    this.kit.setKickLevel(1.0);
   }
 
   // Ending: drums thin to kick+clap, a riser swells, a final swung stab

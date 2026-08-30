@@ -75,8 +75,9 @@ export class DrumKit {
     src.stop(time + duration + 0.05);
   }
 
-  playKick(time, { velocity = 1, startFreq = 150, endFreq = 42, decay = 0.3, click = 0.3 } = {}) {
+  playKick(time, { velocity = 1, startFreq = 150, endFreq = 42, decay = 0.3, click = 0.35, body = 0.7 } = {}) {
     const ctx = this.ctx;
+    // Beater: the classic sine pitch-drop, hard instant attack for the snap.
     const osc = ctx.createOscillator();
     osc.type = 'sine';
     osc.frequency.setValueAtTime(startFreq, time);
@@ -89,11 +90,27 @@ export class DrumKit {
     osc.start(time);
     osc.stop(time + decay + 0.05);
 
+    // Body: a low sub underneath the beater gives the kick weight.
+    if (body > 0) {
+      const sub = ctx.createOscillator();
+      sub.type = 'sine';
+      sub.frequency.value = Math.max(38, endFreq * 0.9);
+      const subEnv = ctx.createGain();
+      subEnv.gain.setValueAtTime(velocity * body, time);
+      subEnv.gain.exponentialRampToValueAtTime(0.0001, time + decay * 1.5);
+      sub.connect(subEnv);
+      subEnv.connect(this.kickBus);
+      sub.start(time);
+      sub.stop(time + decay * 1.5 + 0.05);
+    }
+
+    // Transient: a short highpass click for the attack.
     if (click > 0) {
       this._noiseHit(time, {
-        duration: 0.03,
+        duration: 0.02,
         filterType: 'highpass',
-        frequency: 4000,
+        frequency: 4500,
+        q: 0.8,
         gain: click * velocity,
         target: this.kickBus,
       });

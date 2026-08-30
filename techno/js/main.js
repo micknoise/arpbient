@@ -35,7 +35,7 @@ function init() {
 
   core.setMasterVolume(parseFloat(volSlider.value));
   conductor.setAcidity(parseFloat(acidSlider.value));
-  core.setSaturation(0.15 + parseFloat(driveSlider.value) * 0.75);
+  core.setSaturation(0.1 + parseFloat(driveSlider.value) * 0.45);
   conductor.setDensity(parseFloat(densSlider.value));
   conductor.setTempo(parseFloat(tempoSlider.value));
 }
@@ -62,7 +62,7 @@ acidSlider.addEventListener('input', (e) => {
   if (conductor) conductor.setAcidity(parseFloat(e.target.value));
 });
 driveSlider.addEventListener('input', (e) => {
-  if (core) core.setSaturation(0.15 + parseFloat(e.target.value) * 0.75);
+  if (core) core.setSaturation(0.1 + parseFloat(e.target.value) * 0.45);
 });
 densSlider.addEventListener('input', (e) => {
   if (conductor) conductor.setDensity(parseFloat(e.target.value));

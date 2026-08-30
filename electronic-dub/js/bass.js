@@ -31,7 +31,7 @@ export class BassLayer {
     q = 2.5,
     velocity = 0.9,
     decay = 1.0,
-    subLevel = 0.7,
+    subLevel = 0.4,
     detune = 8,
   } = {}) {
     const ctx = this.ctx;
@@ -79,11 +79,12 @@ export class BassLayer {
     filter.frequency.setValueAtTime(cutoffBase, t0);
     filter.frequency.exponentialRampToValueAtTime(Math.max(55, cutoffFloor), t0 + attack + decay);
 
+    // Click-safe ADSR -- every ramp flows into the next, no mid-ramp
+    // setValueAtTime snaps.
     env.gain.setValueAtTime(0.0001, t0);
     env.gain.linearRampToValueAtTime(velocity, t0 + attack);
-    env.gain.exponentialRampToValueAtTime(sustainLevel, end);
-    env.gain.setValueAtTime(sustainLevel, end - 0.01);
-    env.gain.exponentialRampToValueAtTime(0.0001, end + release);
+    env.gain.exponentialRampToValueAtTime(sustainLevel, t0 + attack + decay);
+    env.gain.exponentialRampToValueAtTime(0.0001, t0 + attack + decay + release);
 
     osc1.start(t0);
     osc1.stop(stopTime);
@@ -117,9 +118,11 @@ export class BassLayer {
 
     const t0 = time;
     const stopTime = t0 + attack + hold + release + 0.2;
+    // Click-safe: the hold is a whisper-sagging swell instead of a flat
+    // setValueAtTime hold, so the release ramp starts from a smooth value.
     env.gain.setValueAtTime(0.0001, t0);
     env.gain.linearRampToValueAtTime(velocity, t0 + attack);
-    env.gain.setValueAtTime(velocity, t0 + attack + hold);
+    env.gain.exponentialRampToValueAtTime(Math.max(0.0005, velocity * 0.96), t0 + attack + hold);
     env.gain.exponentialRampToValueAtTime(0.0001, t0 + attack + hold + release);
     osc.start(t0);
     osc.stop(stopTime);

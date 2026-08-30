@@ -32,11 +32,11 @@ export class BassLayer {
   playNote(midi, startTime, {
     cutoffBase = 900,
     cutoffFloor = 120,
-    q = 12,
+    q = 6,
     velocity = 0.8,
     decay = 0.16,
-    subLevel = 0.5,
-    driveLevel = 0.8,
+    subLevel = 0.4,
+    driveLevel = 0.5,
   } = {}) {
     const ctx = this.ctx;
     const freq = midiToFreq(midi);
@@ -71,18 +71,19 @@ export class BassLayer {
     const t0 = startTime;
     const sustainLevel = Math.max(0.0005, velocity * 0.25);
     const holdEnd = t0 + attack + decay;
-    const stopTime = holdEnd + 0.1;
+    const stopTime = holdEnd + 0.15;
 
     // The acid motion: full-open at the hit, dropping to the floor over
     // the note's decay.
     filter.frequency.setValueAtTime(cutoffBase, t0);
     filter.frequency.exponentialRampToValueAtTime(Math.max(50, cutoffFloor), t0 + attack + decay);
 
+    // Click-safe: attack, smooth decay to sustain, then release -- no
+    // mid-ramp setValueAtTime snap.
     env.gain.setValueAtTime(0.0001, t0);
     env.gain.linearRampToValueAtTime(velocity, t0 + attack);
-    env.gain.exponentialRampToValueAtTime(sustainLevel, t0 + attack + decay);
-    env.gain.setValueAtTime(sustainLevel, holdEnd - 0.02);
-    env.gain.exponentialRampToValueAtTime(0.0001, holdEnd);
+    env.gain.exponentialRampToValueAtTime(sustainLevel, holdEnd);
+    env.gain.exponentialRampToValueAtTime(0.0001, holdEnd + 0.1);
 
     osc.start(t0);
     osc.stop(stopTime);

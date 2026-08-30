@@ -24,6 +24,10 @@ export class AudioCore {
     this.masterGain = ctx.createGain();
     this.masterGain.gain.value = 0; // fades in on start()
 
+    // Invalidates any pending stop()'s delayed suspend on restart, so a
+    // stop->start within the 2.7s window can't suspend the new playback.
+    this._stopGen = 0;
+
     this.limiter = ctx.createDynamicsCompressor();
     this.limiter.threshold.value = -14;
     this.limiter.knee.value = 6;
@@ -39,11 +43,6 @@ export class AudioCore {
     // conductor can schedule a sidechain-style pump at each kick hit.
     this.duckGain = ctx.createGain();
     this.duckGain.gain.value = 1;
-    // Tracks the last commanded duck level (same lookahead reason as the
-    // arpbient pad gate: reading .gain.value at schedule time returns the
-    // audio thread's *current* value, not the value the next ramp will
-    // start from).
-    this._duckTarget = 1.0;
 
     this.busSum = ctx.createGain();
     this.duckGain.connect(this.busSum);
@@ -103,17 +102,14 @@ export class AudioCore {
   }
 
   // Sidechain-style pump at `time`: quickly dip everything but the kick,
-  // then release. depth 0..1 (0 = no duck). The ramp starts from the last
-  // commanded level rather than the audio thread's current value, so
-  // overlapping pumps (fast kicks) don't click at the ramp start.
+  // then release. depth 0..1 (0 = no duck). setTargetAtTime starts from the
+  // param's current value by construction, so overlapping pumps and prior
+  // effect changes can't click at the transition.
   pump(time, { depth = 0.6, release = 0.16 } = {}) {
     if (depth <= 0) return;
     const g = this.duckGain.gain;
-    const from = this._duckTarget;
-    const floor = Math.max(0.0001, from * (1 - depth));
-    g.setValueAtTime(from, time);
-    g.linearRampToValueAtTime(floor, time + 0.008);
-    g.linearRampToValueAtTime(from, time + release);
+    g.setTargetAtTime(Math.max(0.0001, 1 - depth), time, 0.004);
+    g.setTargetAtTime(1.0, time + 0.01, Math.max(0.02, release / 4));
   }
 
   // Live drive change (the "drive" slider). Swapping the curve is safe
@@ -153,16 +149,19 @@ export class AudioCore {
   }
 
   // Hard on/off the delay + reverb returns -- the dub "effect dropout".
+  // setTargetAtTime (not a read-and-snap setValueAtTime) so the transition
+  // starts from the param's live value and can't click.
   setEffectsMuted(muted, time) {
-    const now = Math.max(time, this.ctx.currentTime);
-    const targets = muted ? 0.0001 : 1.0;
+    const target = muted ? 0.0001 : 1.0;
     [this.delayReturn, this.reverbReturn].forEach((n) => {
-      n.gain.setValueAtTime(n.gain.value, now);
-      n.gain.linearRampToValueAtTime(targets, now + 0.05);
+      n.gain.setTargetAtTime(target, time, 0.03);
     });
   }
 
   async start() {
+    // A restart invalidates any pending stop()'s delayed suspend, so the
+    // 2.7s-after-stop suspend can't fire on this new playback.
+    this._stopGen++;
     if (this.ctx.state === 'suspended') await this.ctx.resume();
     const now = this.ctx.currentTime;
     this.masterGain.gain.cancelScheduledValues(now);
@@ -175,8 +174,10 @@ export class AudioCore {
     this.masterGain.gain.cancelScheduledValues(now);
     this.masterGain.gain.setValueAtTime(this.masterGain.gain.value, now);
     this.masterGain.gain.linearRampToValueAtTime(0.0001, now + 2.5);
+    const gen = ++this._stopGen;
     setTimeout(() => {
-      if (this.ctx.state === 'running') this.ctx.suspend();
+      // Only suspend if no start() (or newer stop()) has happened since.
+      if (gen === this._stopGen && this.ctx.state === 'running') this.ctx.suspend();
     }, 2700);
   }
 

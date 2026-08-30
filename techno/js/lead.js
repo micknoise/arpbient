@@ -119,14 +119,14 @@ export class LeadLayer {
 
     const t0 = time;
     const sustainLevel = Math.max(0.0005, velocity * sustain);
-    const sustainEnd = t0 + attack + hold;
+    // Click-safe: attack, a smooth settle to the sustain level (replaces an
+    // instant drop that clicked), then a single release ramp to silence.
+    const settle = Math.max(0.03, Math.min(0.12, hold * 0.4));
     const stopTime = t0 + attack + hold + decay + 0.1;
 
     env.gain.setValueAtTime(0.0001, t0);
     env.gain.linearRampToValueAtTime(velocity, t0 + attack);
-    if (hold > 0.02) {
-      env.gain.setValueAtTime(sustainLevel, sustainEnd);
-    }
+    env.gain.exponentialRampToValueAtTime(sustainLevel, t0 + attack + settle);
     env.gain.exponentialRampToValueAtTime(0.0001, t0 + attack + hold + decay);
 
     osc1.start(t0);

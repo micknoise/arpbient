@@ -6,12 +6,14 @@ import { DrumKit } from './drum.js';
 // Electronica (IDM) composer. 16-step grid (16ths), 4/4, one chord per bar.
 // Fixed tempo and key per movement.
 //
-// The character: dense 16th "noodle" arpeggios that mutate every bar
-// (arps are deliberately fluid -- unlike the bass, which holds its phrase
-// for 4-8 bars), a gliding syncopated bass, hat patterns with random
-// pitched glitches, and sections that rotate between drum-driven noodle,
-// drumless break (arps + bass floating), and sparse groove. The Glitch
-// slider adds octave jumps, micro-stutters, and hat rate wobbles.
+// The character: dense 16th "noodle" arpeggios, a gliding syncopated
+// bass, hat patterns with random pitched glitches, and sections that
+// rotate between drum-driven noodle, drumless break (arps + bass
+// floating), and sparse bass-forward groove. A section change is one
+// concert event -- bass + top voice + hats + levels all re-rolled
+// together; within a section the groove only builds by adding layers.
+// The Glitch slider adds octave jumps, micro-stutters, and hat rate
+// wobbles.
 export class Conductor {
   constructor(audioCore) {
     this.core = audioCore;
@@ -45,8 +47,12 @@ export class Conductor {
     };
     this.sectionUntilBar = 0;
 
-    // Noodle bass ostinato held 4-8 bars before it re-glides.
-    this.bassHoldBars = randInt(4, 8);
+    // Section model: a change is one concert event (bass + top voice +
+    // hats + levels re-rolled together); within a section the groove
+    // builds by adding texture layers rather than swapping parts on
+    // independent timers.
+    this.sectionBar = 0;      // bars since the current section started
+    this.layerGates = {};     // additive layer -> sectionBar at which it joins
     // Bar index whose grid arp is replaced by a polyrhythmic phrase.
     this.polyBar = -1;
 
@@ -55,6 +61,7 @@ export class Conductor {
     this.rimPat = new Array(16).fill(0);
     this.bassPat = new Array(16).fill(null);
     this.arpPat = new Array(16).fill(null);
+    this.leadPat = new Array(16).fill(null);
 
     this.chordSemis = [0, 7, 12];
     this.arpPool = [72, 79, 84];
@@ -111,11 +118,7 @@ export class Conductor {
     this.sectionUntilBar = 0;
     this.polyBar = -1;
     this._advanceChord(this.ctx.currentTime, true);
-    this._makeBassPattern();
-    this._makeArpPattern();
-    this._makeHatPattern();
-    this._makeSectionPatterns();
-    this._applyLevels();
+    this._applySection('noodle');
   }
 
   _scheduler() {
@@ -148,7 +151,7 @@ export class Conductor {
 
     // Hats -- the glitch slider wobbles the pitch of random hits.
     const hv = this.hatPat[barStep];
-    if (hv > 0) {
+    if (hv > 0 && this._layerOn('hat')) {
       const glitch = Math.random() < this.macro.glitch * 0.3;
       this.kit.playHat(time, {
         velocity: hv,
@@ -159,7 +162,7 @@ export class Conductor {
       });
     }
 
-    if (this.rimPat[barStep] > 0) {
+    if (this.rimPat[barStep] > 0 && this._layerOn('rim')) {
       this.kit.playRim(time, { velocity: this.rimPat[barStep], frequency: pick([700, 900, 1200]), pan: -0.3 });
     }
 
@@ -170,7 +173,7 @@ export class Conductor {
         cutoffBase: 900 + this.macro.intensity * 700,
         cutoffFloor: 120,
         q: 6,
-        velocity: b.vel,
+        velocity: Math.min(0.85, b.vel),
         decay: b.len,
         glide: b.glide || 0,
         bend: Math.random() < 0.3 ? 0.04 + Math.random() * 0.06 : 0,
@@ -180,9 +183,11 @@ export class Conductor {
 
     // Dense 16th arps (skipped on the polyrhythm bar).
     const a = this.arpPat[barStep];
-    if (a && barIndex !== this.polyBar) {
+    if (a && barIndex !== this.polyBar && this._layerOn('arp')) {
       const pool = this.arpPool;
-      let midi = pool[a.noteIdx % pool.length];
+      // noteIdx random-walks in both directions -- wrap negative indices.
+      const ni = ((a.noteIdx % pool.length) + pool.length) % pool.length;
+      let midi = pool[ni];
       // Glitch: occasional octave jump.
       if (Math.random() < this.macro.glitch * 0.1) midi += pick([12, -12, 19]);
       this.lead.pluck(midi, time, {
@@ -197,7 +202,7 @@ export class Conductor {
 
     // Sparse long tone (break section mostly).
     const l = this.leadPat[barStep];
-    if (l && barIndex !== this.polyBar) {
+    if (l && barIndex !== this.polyBar && this._layerOn('lead')) {
       this.lead.note(this.scalePool[l.noteIdx % this.scalePool.length], time, {
         cutoffBase: 1600 + this.macro.intensity * 800,
         q: 3,
@@ -214,23 +219,14 @@ export class Conductor {
     // One chord per bar. Bar 0 already has the chord at movement start.
     if (barIndex > 0) this._advanceChord(time);
 
-    // Section rotation: noodle (drum-driven) / break (no kick) / groove
-    // (sparse, bass-forward).
-    if (barIndex >= this.sectionUntilBar && barIndex > 0) {
-      const r = Math.random();
-      this.macro.section = r < 0.5 ? 'noodle' : r < 0.75 ? 'break' : 'groove';
+    // A section change is one concert event: bass + top voice + hats +
+    // levels all re-rolled together. Between changes the groove is stable
+    // and only builds by adding layers (see _layerOn).
+    if (barIndex > 0 && barIndex >= this.sectionUntilBar) {
+      this._applySection(this._pickSection());
       this.sectionUntilBar = barIndex + randInt(4, 8);
-      this._makeSectionPatterns();
-      this._applyLevels();
-    }
-
-    // Arps mutate every bar -- that's the IDM texture. Bass holds 4-8 bars.
-    if (Math.random() < 0.85) this._makeArpPattern();
-    if (Math.random() < 0.3) this._makeHatPattern();
-    this.bassHoldBars--;
-    if (this.bassHoldBars <= 0) {
-      this._makeBassPattern();
-      this.bassHoldBars = randInt(4, 8);
+    } else if (barIndex > 0) {
+      this.sectionBar++;
     }
 
     // Polyrhythmic arp phrase (3-against-2, 5-against-4, ...) against the grid.
@@ -246,6 +242,44 @@ export class Conductor {
     if (barIndex >= this.movementEndBar) {
       this._beginEnding(time);
     }
+  }
+
+  // One concert event: pick the section's full groove (bass + top voice +
+  // hats + levels) and reset the in-section layer build.
+  _applySection(name) {
+    this.macro.section = name;
+    this.sectionBar = 0;
+    this._makeBassPattern();
+    this._makeArpPattern();
+    this._makeLeadPattern();
+    this._makeHatPattern();
+    // Kick is the constant core of the drum sections; the break drops
+    // it entirely -- arps + bass floating over silence.
+    if (name === 'break') {
+      this.kickPat = new Array(16).fill(0);
+    } else {
+      this.kickPat = [1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0];
+      if (name === 'noodle' && Math.random() < 0.4) this.kickPat[10] = 0.55;
+    }
+    this._applyLevels();
+    // Noodle is full immediately. Break keeps the arp up (it IS the top
+    // voice there) and admits the long tone in bar 2, with hats and rim
+    // off for good. Groove is sparse and bass-forward: everything
+    // additive joins late.
+    this.layerGates =
+      name === 'noodle' ? {} :
+      name === 'break' ? { arp: 0, lead: 1, hat: 99, rim: 99 } :
+      { arp: 2, hat: 2, rim: 3, lead: 3 };
+  }
+
+  _pickSection() {
+    const r = Math.random();
+    return r < 0.5 ? 'noodle' : r < 0.75 ? 'break' : 'groove';
+  }
+
+  // An additive layer plays once the section has built far enough.
+  _layerOn(name) {
+    return this.sectionBar >= (this.layerGates[name] ?? 0);
   }
 
   _advanceChord(time, silent = false) {
@@ -328,24 +362,19 @@ export class Conductor {
     this.rimPat = rim;
   }
 
-  _makeSectionPatterns() {
-    const s = this.macro.section;
-    if (s === 'noodle') {
-      this.kickPat = [1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0];
-      if (Math.random() < 0.4) this.kickPat[10] = 0.55;
-      this.leadPat = new Array(16).fill(null);
-    } else if (s === 'break') {
-      this.kickPat = new Array(16).fill(0);
-      this.leadPat = new Array(16).fill(null);
+  // Sparse long tones -- the break's air, an occasional ghost in groove.
+  _makeLeadPattern() {
+    const pat = new Array(16).fill(null);
+    if (this.macro.section === 'break') {
       // One or two floating long tones per bar.
       const spots = pick([[0], [4], [0, 8]]);
-      spots.forEach((s2, i) => {
-        this.leadPat[s2] = { noteIdx: i, vel: 0.3 };
+      spots.forEach((s, i) => {
+        pat[s] = { noteIdx: i, vel: 0.3 };
       });
-    } else {
-      this.kickPat = [1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0];
-      this.leadPat = new Array(16).fill(null);
+    } else if (this.macro.section === 'groove' && Math.random() < 0.5) {
+      pat[8] = { noteIdx: 0, vel: 0.25 };
     }
+    this.leadPat = pat;
   }
 
   // Polyrhythmic arp phrase: N evenly-spaced notes over M beats, off grid.
@@ -377,9 +406,9 @@ export class Conductor {
 
   _applyLevels() {
     const s = this.macro.section;
-    const bassL = s === 'groove' ? 0.65 : s === 'break' ? 0.5 : 0.45 + this.macro.intensity * 0.15;
-    const leadL = s === 'break' ? 0.45 : 0.3 + this.macro.intensity * 0.15;
-    const drumL = s === 'break' ? 0.65 : 0.85;
+    const bassL = s === 'break' ? 0.42 : 0.3 + this.macro.intensity * 0.12;
+    const leadL = s === 'break' ? 0.5 : 0.38 + this.macro.intensity * 0.12;
+    const drumL = s === 'break' ? 0.0 : 0.9;
     this.bass.setLevel(clamp01(bassL));
     this.lead.setLevel(clamp01(leadL));
     this.kit.setLevel(clamp01(drumL));

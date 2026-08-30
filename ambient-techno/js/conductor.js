@@ -35,11 +35,15 @@ export class Conductor {
     this.stepCount = 0;
     this.timerID = null;
 
-    this.macro = { space: 0.7, density: 0.45, intensity: 0.3, warmth: 0.6 };
+    this.macro = { space: 0.7, density: 0.45, intensity: 0.3, warmth: 0.6, section: 'drift' };
     this.intensityTarget = 0.3;
+    this.sectionUntilBar = 0;
 
-    // Bass ostinato (which swell pattern) held 4-8 bars.
-    this.bassHoldBars = randInt(4, 8);
+    // Section model: a change is one concert event (bass + lead + hats
+    // re-rolled together); within a section the texture builds by adding
+    // layers rather than swapping parts on independent timers.
+    this.sectionBar = 0;
+    this.layerGates = {};
     this.polyBar = -1;
 
     // 16-step patterns.
@@ -94,17 +98,10 @@ export class Conductor {
     this.chordIndex = 0;
     this.stepCount = 0;
     this.polyBar = -1;
-    this.bassHoldBars = randInt(4, 8);
     this.sweepBar = randInt(8, 16);
     this._advanceChord(true);
-    this._makeBassPattern();
-    this._makeLeadPattern();
-    this._makeHatPattern();
-    this.kickPat = [1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0];
-    this.clapPat = [0, 0, 0, 0, 0.4, 0, 0, 0, 0, 0, 0, 0, 0.4, 0, 0, 0];
-    this.rimPat = new Array(16).fill(0);
+    this._applySection('drift');
     this._playChord(this.ctx.currentTime);
-    this._applyLevels();
   }
 
   _scheduler() {
@@ -139,15 +136,15 @@ export class Conductor {
     if (cv > 0) this.kit.playClap(time, { velocity: cv, frequency: 1100, hits: 2, pan: 0.1 });
 
     const hv = this.hatPat[barStep];
-    if (hv > 0) {
+    if (hv > 0 && this._layerOn('hat')) {
       this.kit.playHat(time, { velocity: hv, frequency: 9000, decay: 0.14, pan: barStep % 8 < 4 ? -0.35 : 0.35 });
     }
     const hvo = this.hatOpenPat[barStep];
-    if (hvo > 0) {
+    if (hvo > 0 && this._layerOn('openHat')) {
       this.kit.playHat(time, { velocity: hvo, frequency: 6800, decay: 0.4, q: 1.2, pan: barStep % 8 === 2 ? -0.5 : 0.5 });
     }
 
-    if (this.rimPat[barStep] > 0) {
+    if (this.rimPat[barStep] > 0 && this._layerOn('rim')) {
       this.kit.playRim(time, { velocity: this.rimPat[barStep], frequency: 850, pan: 0.3 });
     }
 
@@ -175,7 +172,7 @@ export class Conductor {
 
     // Sparse long lead notes (skipped on a polyrhythmic bar).
     const l = this.leadPat[barStep];
-    if (l && barIndex !== this.polyBar) {
+    if (l && barIndex !== this.polyBar && this._layerOn('lead')) {
       this.lead.note(this.leadPool[l.noteIdx % this.leadPool.length], time, {
         cutoffBase: 1600 + this.macro.warmth * 900,
         velocity: l.vel,
@@ -202,16 +199,16 @@ export class Conductor {
       this.sweepBar = barIndex + randInt(10, 20);
     }
 
-    // Mutations -- bass ostinato held 4-8 bars.
-    this.bassHoldBars--;
-    if (this.bassHoldBars <= 0) {
-      this._makeBassPattern();
-      this.bassHoldBars = randInt(4, 8);
+    // A section change is one concert event: bass + lead + hats + kick +
+    // rim all re-roll together, and the bass now holds for the full section
+    // (4-8 bars). Between changes the texture only builds by adding layers
+    // (see _layerOn) -- nothing drifts out of sync.
+    if (barIndex > 0 && barIndex >= this.sectionUntilBar) {
+      this._applySection(this._pickSection());
+      this.sectionUntilBar = barIndex + randInt(4, 8);
+    } else if (barIndex > 0) {
+      this.sectionBar++;
     }
-    if (Math.random() < 0.15) this._makeHatPattern();
-    if (Math.random() < 0.2) this._makeLeadPattern();
-    if (Math.random() < 0.12) this._mutateKick();
-    if (Math.random() < 0.1) this._mutateRim();
 
     // Polyrhythmic lead bar (3-against-4, 5-against-4 at slow tempos).
     if (barIndex > 0 && Math.random() < 0.15) {
@@ -239,6 +236,49 @@ export class Conductor {
 
     if (barIndex >= this.movementEndBar) {
       this._beginEnding(time);
+    }
+  }
+
+  // One concert event: pick the section's full texture (bass + lead + hats
+  // + kick + rim + levels) and reset the in-section layer build.
+  _applySection(name) {
+    this.macro.section = name;
+    this.sectionBar = 0;
+    this._makeBassPattern();
+    this._makeLeadPattern();
+    this._makeHatPattern();
+    this._makeRimPattern();
+    this._pickKick(name);
+    // The soft clap on 2 & 4 is the constant ambient-techno core.
+    this.clapPat = [0, 0, 0, 0, 0.4, 0, 0, 0, 0, 0, 0, 0, 0.4, 0, 0, 0];
+    this._applyLevels();
+    // Drift builds up from a bare pad + bass; swell is full immediately;
+    // deep stays drumless-feeling and lets the lead ride.
+    this.layerGates =
+      name === 'swell' ? {} :
+      name === 'deep' ? { hat: 2, openHat: 3, rim: 4, lead: 0 } :
+      { hat: 1, openHat: 2, rim: 2, lead: 1 };
+  }
+
+  _pickSection() {
+    const r = Math.random();
+    return r < 0.5 ? 'drift' : r < 0.85 ? 'swell' : 'deep';
+  }
+
+  // A texture layer plays once the section has built far enough.
+  _layerOn(name) {
+    return this.sectionBar >= (this.layerGates[name] ?? 0);
+  }
+
+  // The half-time kick core, shaped per section (swell adds the broken
+  // ghost pulses; deep is a bare heartbeat that the low kit level buries).
+  _pickKick(name) {
+    if (name === 'swell') {
+      this.kickPat = [0.8, 0, 0, 0, 0.5, 0, 0, 0, 0.8, 0, 0, 0, 0.5, 0, 0, 0];
+    } else if (name === 'deep') {
+      this.kickPat = [0.9, 0, 0, 0, 0, 0, 0, 0, 0.9, 0, 0, 0, 0, 0, 0, 0];
+    } else {
+      this.kickPat = [0.8, 0, 0, 0, 0, 0, 0, 0, 0.8, 0, 0, 0, 0, 0, 0, 0];
     }
   }
 
@@ -318,20 +358,8 @@ export class Conductor {
     this.hatOpenPat = open;
   }
 
-  _mutateKick() {
-    const r = Math.random();
-    if (r < 0.3) {
-      this.kickPat = [0.8, 0, 0, 0, 0, 0, 0, 0, 0.8, 0, 0, 0, 0, 0, 0, 0];
-    } else if (r < 0.55) {
-      this.kickPat = [0.6, 0, 0, 0, 0.5, 0, 0, 0, 0.6, 0, 0, 0, 0.5, 0, 0, 0];
-    } else if (r < 0.75) {
-      this.kickPat = [0.8, 0, 0, 0, 0, 0, 0, 0.4, 0.8, 0, 0, 0, 0, 0, 0, 0];
-    } else {
-      this.kickPat = [0.7, 0, 0, 0, 0, 0, 0, 0, 0.7, 0, 0, 0, 0, 0, 0, 0];
-    }
-  }
-
-  _mutateRim() {
+  // Sparse rim ghosts, re-rolled with the section.
+  _makeRimPattern() {
     const pat = new Array(16).fill(0);
     if (Math.random() < 0.5) {
       const spots = pick([[13], [3, 11], [5], [1, 9]]);
@@ -366,10 +394,14 @@ export class Conductor {
 
   _applyLevels() {
     const i = this.macro.intensity;
+    const s = this.macro.section;
+    // 'deep' buries the kit under the pad; 'swell' lifts it forward.
+    const kitL = s === 'deep' ? 0.12 + i * 0.2 : s === 'swell' ? 0.5 + i * 0.45 : 0.35 + i * 0.5;
+    const leadL = s === 'deep' ? 0.42 + i * 0.15 : 0.3 + i * 0.2;
     this.pad.setLevel(0.45 + i * 0.2);
     this.bass.setLevel(0.4 + i * 0.25);
-    this.lead.setLevel(0.3 + i * 0.2);
-    this.kit.setLevel(0.35 + i * 0.5);
+    this.lead.setLevel(clamp01(leadL));
+    this.kit.setLevel(clamp01(kitL));
     this.kit.setKickLevel(0.9);
   }
 

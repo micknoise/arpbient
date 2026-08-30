@@ -11,6 +11,9 @@ export class AudioCore {
     this.masterGain = ctx.createGain();
     this.masterGain.gain.value = 0; // fades in on start()
 
+    // Invalidates any pending stop()'s delayed suspend on restart.
+    this._stopGen = 0;
+
     this.limiter = ctx.createDynamicsCompressor();
     this.limiter.threshold.value = -14;
     this.limiter.knee.value = 6;
@@ -77,6 +80,9 @@ export class AudioCore {
   }
 
   async start() {
+    // A restart invalidates any pending stop()'s delayed suspend, so the
+    // 2.7s-after-stop suspend can't fire on this new playback.
+    this._stopGen++;
     if (this.ctx.state === 'suspended') await this.ctx.resume();
     const now = this.ctx.currentTime;
     this.masterGain.gain.cancelScheduledValues(now);
@@ -89,8 +95,10 @@ export class AudioCore {
     this.masterGain.gain.cancelScheduledValues(now);
     this.masterGain.gain.setValueAtTime(this.masterGain.gain.value, now);
     this.masterGain.gain.linearRampToValueAtTime(0.0001, now + 2.5);
+    const gen = ++this._stopGen;
     setTimeout(() => {
-      if (this.ctx.state === 'running') this.ctx.suspend();
+      // Only suspend if no start() (or newer stop()) has happened since.
+      if (gen === this._stopGen && this.ctx.state === 'running') this.ctx.suspend();
     }, 2700);
   }
 

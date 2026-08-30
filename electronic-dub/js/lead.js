@@ -118,10 +118,11 @@ export class LeadLayer {
     lfoDepth.gain.setValueAtTime(0, t0);
     lfoDepth.gain.linearRampToValueAtTime(vibrato * 30, t0 + 0.12);
 
+    // Click-safe ADSR -- every ramp flows into the next, no mid-ramp
+    // setValueAtTime snaps.
     env.gain.setValueAtTime(0.0001, t0);
     env.gain.linearRampToValueAtTime(velocity, t0 + attack);
     env.gain.exponentialRampToValueAtTime(sustainLevel, t0 + attack + decay);
-    env.gain.setValueAtTime(sustainLevel, t0 + attack + decay - 0.02);
     env.gain.exponentialRampToValueAtTime(0.0001, t0 + attack + decay + 0.15);
 
     lfo.start(t0);
@@ -158,9 +159,11 @@ export class LeadLayer {
 
       const t0 = time;
       const stopTime = t0 + attack + hold + release + 0.3;
+      // Click-safe: the hold is a whisper-sagging swell instead of a flat
+      // setValueAtTime hold, so the release ramp starts from a smooth value.
       env.gain.setValueAtTime(0.0001, t0);
       env.gain.linearRampToValueAtTime(velocity, t0 + attack);
-      env.gain.setValueAtTime(velocity, t0 + attack + hold);
+      env.gain.exponentialRampToValueAtTime(Math.max(0.0005, velocity * 0.96), t0 + attack + hold);
       env.gain.exponentialRampToValueAtTime(0.0001, t0 + attack + hold + release);
       osc.start(t0);
       osc.stop(stopTime);
