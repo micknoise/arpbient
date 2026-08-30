@@ -134,7 +134,7 @@ export class LeadLayer {
     env.gain.setValueAtTime(0.0001, t0);
     env.gain.linearRampToValueAtTime(velocity, t0 + attack);
     env.gain.exponentialRampToValueAtTime(sustainLevel, t0 + attack + decay);
-    env.gain.setValueAtTime(sustainLevel, t0 + attack + decay - 0.04);
+    env.gain.setValueAtTime(sustainLevel, t0 + attack + decay);
     env.gain.exponentialRampToValueAtTime(0.0001, t0 + attack + decay + 0.25);
 
     lfo.start(t0);

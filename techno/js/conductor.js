@@ -230,7 +230,9 @@ export class Conductor {
 
     // Sometimes let the lead run a polyrhythmic phrase against the 16th
     // grid (3-against-2, 5-against-4, ...) instead of the grid pattern.
-    if (this.macro.section === 'main' && barIndex > 0 && Math.random() < 0.18) {
+    // Only against a live grid lead -- an orphaned off-grid phrase with
+    // the top voice gated off reads as a timing error.
+    if (this.macro.section === 'main' && barIndex > 0 && this._layerOn('top') && Math.random() < 0.18) {
       this.polyBar = barIndex;
       this._playPolyPhrase(time);
     }
@@ -399,20 +401,25 @@ export class Conductor {
     this.rimPat = pat;
   }
 
-  // Polyrhythmic lead phrase: N evenly-spaced notes over M beats, starting
-  // on an off-grid-feeling spot. Scheduled at absolute times, so it can
-  // land between the 16th grid steps.
+  // Polyrhythmic lead phrase: N evenly-spaced notes over M beats, replacing
+  // the bar's grid pattern (see polyBar). The notes walk the pool in one
+  // direction with an accented head, so it reads as a deliberate figure
+  // against the grid rather than a timing slip.
   _playPolyPhrase(time) {
     const barDur = (4 * 60) / this.bpm;
     const [n, beats] = pick([[3, 2], [3, 4], [5, 4], [7, 4], [5, 2]]);
     const span = beats * (barDur / 4);
     const start = time + (Math.random() < 0.5 ? 0 : barDur / 2);
+    const pool = this.leadPool;
+    let idx = Math.floor(Math.random() * pool.length);
+    const dir = Math.random() < 0.5 ? 1 : -1;
     for (let i = 0; i < n; i++) {
       const t = start + (span * i) / n;
-      this.lead.pluck(pick(this.leadPool), t, {
+      idx += dir * pick([1, 1, 2]);
+      this.lead.pluck(pool[((idx % pool.length) + pool.length) % pool.length], t, {
         cutoffBase: 2000 + this.macro.intensity * 1000,
         q: 5 + this.macro.acid * 4,
-        velocity: 0.38,
+        velocity: i === 0 ? 0.5 : 0.34,
         decay: 0.16,
       });
     }

@@ -89,6 +89,11 @@ export class AudioCore {
     }
   }
 
+  // Re-routes the delay time (BPM-locked per movement).
+  setDelayTime(seconds) {
+    this.delayNode.delayNode.delayTime.value = seconds;
+  }
+
   // Routes a share of a node's output through the heavy grit bus.
   connectGrit(node, amount = 0.5) {
     if (amount <= 0) return;

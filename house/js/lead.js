@@ -112,12 +112,16 @@ export class LeadLayer {
 
     const t0 = time;
     const sustainLevel = Math.max(0.0005, velocity * sustain);
-    const stopTime = t0 + attack + hold + decay + 0.2;
+    // A 30ms settle instead of a hard snap-down at the end of the hold --
+    // same stab character, no click.
+    const settle = 0.03;
+    const stopTime = t0 + attack + hold + decay + settle + 0.2;
 
     env.gain.setValueAtTime(0.0001, t0);
     env.gain.linearRampToValueAtTime(velocity, t0 + attack);
-    if (hold > 0.02) env.gain.setValueAtTime(sustainLevel, t0 + attack + hold);
-    env.gain.exponentialRampToValueAtTime(0.0001, t0 + attack + hold + decay);
+    env.gain.setValueAtTime(velocity, t0 + attack + hold);
+    env.gain.linearRampToValueAtTime(sustainLevel, t0 + attack + hold + settle);
+    env.gain.exponentialRampToValueAtTime(0.0001, t0 + attack + hold + settle + decay);
 
     osc1.start(t0);
     osc1.stop(stopTime);

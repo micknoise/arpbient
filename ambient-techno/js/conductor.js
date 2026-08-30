@@ -211,7 +211,9 @@ export class Conductor {
     }
 
     // Polyrhythmic lead bar (3-against-4, 5-against-4 at slow tempos).
-    if (barIndex > 0 && Math.random() < 0.15) {
+    // Only against a live grid lead -- an orphaned off-grid phrase with
+    // the lead gated off reads as a timing error.
+    if (barIndex > 0 && this._layerOn('lead') && Math.random() < 0.15) {
       this.polyBar = barIndex;
       this._playPolyPhrase(time);
     }
@@ -368,16 +370,23 @@ export class Conductor {
     this.rimPat = pat;
   }
 
+  // Polyrhythmic lead phrase, always within one bar (polyBar suppresses
+  // the grid lead for exactly one bar). Notes walk the pool with an
+  // accented head -- a deliberate figure, not a timing slip.
   _playPolyPhrase(time) {
     const barDur = (4 * 60) / this.bpm;
-    const [n, beats] = pick([[3, 4], [5, 4], [3, 2], [5, 8]]);
+    const [n, beats] = pick([[3, 4], [5, 4], [3, 2], [7, 4]]);
     const span = beats * (barDur / 4);
     const start = time;
+    const pool = this.leadPool;
+    let idx = Math.floor(Math.random() * pool.length);
+    const dir = Math.random() < 0.5 ? 1 : -1;
     for (let i = 0; i < n; i++) {
       const t = start + (span * i) / n;
-      this.lead.note(pick(this.leadPool), t, {
+      idx += dir * pick([1, 1, 2]);
+      this.lead.note(pool[((idx % pool.length) + pool.length) % pool.length], t, {
         cutoffBase: 1800,
-        velocity: 0.26,
+        velocity: i === 0 ? 0.36 : 0.24,
         decay: 1.2,
         vibratoRate: 4,
       });
@@ -450,8 +459,9 @@ export class Conductor {
   }
 
   _syncDelay() {
-    // Long dotted-half-note-ish delay for the spacious echo.
-    this.core.setDelayTime((60 / this.bpm) * 3);
+    // Just under two beats -- the slow tempo leaves room for a long
+    // cascading echo tail.
+    this.core.setDelayTime((60 / this.bpm) * 1.9);
   }
 
   setTempo(bpm) {

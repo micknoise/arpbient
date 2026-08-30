@@ -230,7 +230,9 @@ export class Conductor {
     }
 
     // Polyrhythmic arp phrase (3-against-2, 5-against-4, ...) against the grid.
-    if (barIndex > 0 && Math.random() < 0.18) {
+    // Only against a live grid arp -- an orphaned off-grid phrase with the
+    // arp gated off reads as a timing error.
+    if (barIndex > 0 && this._layerOn('arp') && Math.random() < 0.18) {
       this.polyBar = barIndex;
       this._playPolyPhrase(time);
     }
@@ -378,18 +380,25 @@ export class Conductor {
   }
 
   // Polyrhythmic arp phrase: N evenly-spaced notes over M beats, off grid.
+  // Polyrhythmic arp phrase: N evenly-spaced notes over M beats. Notes walk
+  // the pool in one direction with an accented head -- a deliberate figure
+  // against the grid, not a timing slip.
   _playPolyPhrase(time) {
     const barDur = (4 * 60) / this.bpm;
     const [n, beats] = pick([[3, 2], [5, 4], [7, 4], [5, 2]]);
     const span = beats * (barDur / 4);
     const start = time + (Math.random() < 0.5 ? 0 : barDur / 2);
+    const pool = this.arpPool;
+    let idx = Math.floor(Math.random() * pool.length);
+    const dir = Math.random() < 0.5 ? 1 : -1;
     for (let i = 0; i < n; i++) {
       const t = start + (span * i) / n;
-      this.lead.pluck(pick(this.arpPool), t, {
+      idx += dir * pick([1, 1, 2]);
+      this.lead.pluck(pool[((idx % pool.length) + pool.length) % pool.length], t, {
         cutoffBase: 2800,
         cutoffFloor: 300,
         q: 5,
-        velocity: 0.4,
+        velocity: i === 0 ? 0.46 : 0.36,
         decay: 0.14,
         repeat: this.macro.glitch,
       });
@@ -469,9 +478,9 @@ export class Conductor {
     if (this.onMovementStart) this.onMovementStart({ root: this.root, mode: this.mode, bpm: this.bpm });
   }
 
-  // Sync the shared delay to the tempo (a 16th, so echo trails stay tight).
+  // Sync the shared delay to the tempo (one beat -- classic IDM spacing).
   _syncDelay() {
-    this.core.setDelayTime(60 / this.bpm / 4);
+    this.core.setDelayTime(60 / this.bpm);
   }
 
   // Target tempo only -- applied at the next movement boundary (or on the

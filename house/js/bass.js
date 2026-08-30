@@ -71,16 +71,17 @@ export class BassLayer {
     const t0 = startTime;
     const sustainLevel = Math.max(0.0005, velocity * 0.3);
     const holdEnd = t0 + attack + decay;
-    const stopTime = holdEnd + 0.12;
+    const release = 0.08;
+    const stopTime = holdEnd + release + 0.05;
 
     filter.frequency.setValueAtTime(cutoffBase, t0);
     filter.frequency.exponentialRampToValueAtTime(Math.max(55, cutoffFloor), t0 + attack + decay * 1.1);
 
     env.gain.setValueAtTime(0.0001, t0);
     env.gain.linearRampToValueAtTime(velocity, t0 + attack);
-    env.gain.exponentialRampToValueAtTime(sustainLevel, t0 + attack + decay);
-    env.gain.setValueAtTime(sustainLevel, holdEnd - 0.02);
-    env.gain.exponentialRampToValueAtTime(0.0001, holdEnd);
+    env.gain.exponentialRampToValueAtTime(sustainLevel, holdEnd);
+    env.gain.setValueAtTime(sustainLevel, holdEnd);
+    env.gain.exponentialRampToValueAtTime(0.0001, holdEnd + release);
 
     osc1.start(t0);
     osc1.stop(stopTime);

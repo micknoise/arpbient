@@ -87,6 +87,7 @@ export class Conductor {
     this.movementEndBar = this._pickMovementLength();
     this.padGate = { active: false, endBar: 0, tick: 0 };
     this.bassSixteenths = false;
+    this._syncDelay();
     this.nextStepTime = this.ctx.currentTime + 0.1;
     this.timerID = setInterval(() => this._scheduler(), this.lookahead);
   }
@@ -95,6 +96,12 @@ export class Conductor {
     this.running = false;
     if (this.timerID) clearInterval(this.timerID);
     this.timerID = null;
+  }
+
+  // Keep the shared delay musically locked: just under two beats -- the
+  // slow tempo leaves room for a long cascading echo tail.
+  _syncDelay() {
+    this.core.setDelayTime((60 / this.bpm) * 1.9);
   }
 
   _scheduler() {
@@ -359,6 +366,7 @@ export class Conductor {
     this.stepCount = 0;
     this.baseBpm = this._pickNewTempo();
     this.bpm = this.baseBpm;
+    this._syncDelay();
     this.root = DARK_ROOTS[Math.floor(Math.random() * DARK_ROOTS.length)];
     this.movementEndBar = this._pickMovementLength();
     this._applyLevels();

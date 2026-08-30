@@ -431,17 +431,26 @@ export class Conductor {
   }
 
   // Polyrhythmic stutter phrase: N blips over M beats, off the grid.
+  // Polyrhythmic stutter phrase: N evenly-spaced hits over M beats. Notes
+  // walk the pool in one direction with an accented head -- a deliberate
+  // figure against the grid, not a timing slip.
   _playPolyPhrase(time) {
     const barDur = (4 * 60) / this.bpm;
     const [n, beats] = pick([[3, 2], [5, 4], [7, 4], [5, 2]]);
     const span = beats * (barDur / 4);
     const start = time + (Math.random() < 0.5 ? 0 : barDur / 2);
+    const pool = this.arpPool;
+    let idx = Math.floor(Math.random() * pool.length);
+    const dir = Math.random() < 0.5 ? 1 : -1;
     for (let i = 0; i < n; i++) {
       const t = start + (span * i) / n;
+      idx += dir * pick([1, 1, 2]);
+      const midi = pool[((idx % pool.length) + pool.length) % pool.length];
+      const vel = i === 0 ? 0.44 : 0.34;
       if (Math.random() < this.macro.stutter * 0.5) {
-        this.lead.stutter(pick(this.arpPool), t, { repeats: 3, velocity: 0.4, decay: 0.06 });
+        this.lead.stutter(midi, t, { repeats: 3, velocity: vel, decay: 0.06 });
       } else {
-        this.lead.blip(pick(this.arpPool), t, { velocity: 0.38, decay: 0.08 });
+        this.lead.blip(midi, t, { velocity: vel, decay: 0.08 });
       }
     }
   }
@@ -517,9 +526,9 @@ export class Conductor {
     if (this.onMovementStart) this.onMovementStart({ root: this.root, mode: this.mode, bpm: this.bpm });
   }
 
-  // Sync the shared delay to the tempo (a 16th -- tight trails).
+  // Sync the shared delay to the tempo (a dotted 8th = 3/4 beat, tight trails).
   _syncDelay() {
-    this.core.setDelayTime(60 / this.bpm / 4);
+    this.core.setDelayTime((60 / this.bpm) * 0.75);
   }
 
   // Target tempo only -- applied at the next movement boundary (or on the

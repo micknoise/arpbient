@@ -114,8 +114,8 @@ export class BassLayer {
     env.gain.setValueAtTime(0.0001, t0);
     env.gain.linearRampToValueAtTime(velocity, t0 + attack);
     env.gain.exponentialRampToValueAtTime(sustainLevel, t0 + attack + decay * 0.6);
-    env.gain.setValueAtTime(sustainLevel, t0 + attack + decay - 0.02);
-    env.gain.exponentialRampToValueAtTime(0.0001, t0 + attack + decay);
+    env.gain.setValueAtTime(sustainLevel, t0 + attack + decay);
+    env.gain.exponentialRampToValueAtTime(0.0001, t0 + attack + decay + 0.06);
 
     osc1.start(t0);
     osc1.stop(stopTime);

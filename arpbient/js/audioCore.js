@@ -79,6 +79,11 @@ export class AudioCore {
     }
   }
 
+  // Re-routes the delay time (BPM-locked per movement).
+  setDelayTime(seconds) {
+    this.delayNode.delayNode.delayTime.value = seconds;
+  }
+
   async start() {
     // A restart invalidates any pending stop()'s delayed suspend, so the
     // 2.7s-after-stop suspend can't fire on this new playback.

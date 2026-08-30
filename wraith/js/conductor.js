@@ -494,6 +494,7 @@ export class Conductor {
     this.chordIndex = 0;
     this.currentDegree = 0;
     this.bpm = Math.round(clamp(this.baseBpm + (Math.random() - 0.5) * 14, 46, 100));
+    this._syncDelay();
     this.movementBassDensity = clamp01(this.bassDensityBase + (Math.random() - 0.5) * 0.5);
     this._rollCharacter();
 
@@ -541,11 +542,18 @@ export class Conductor {
     return opts[Math.floor(Math.random() * opts.length)];
   }
 
+  // Keep the shared delay musically locked: just under two beats -- the
+  // slow tempo leaves room for a long cascading echo tail.
+  _syncDelay() {
+    this.core.setDelayTime((60 / this.bpm) * 1.9);
+  }
+
   // ---- Public control surface (same names as the ambient version) ----
 
   setTempo(bpm) {
     this.baseBpm = bpm;
     this.bpm = Math.round(clamp(bpm, 46, 100));
+    this._syncDelay();
   }
 
   setDarknessOverride(v) {
