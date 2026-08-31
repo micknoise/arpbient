@@ -537,7 +537,7 @@ export class Conductor {
   _applyLevels() {
     const s = this.macro.section;
     const bassL = s === 'hold' ? 0.55 : 0.5 + this.macro.intensity * 0.2;
-    const leadL = s === 'hold' ? 0.45 : s === 'detonate' ? 0.5 : 0.35 + this.macro.intensity * 0.15;
+    const leadL = s === 'hold' ? 0.36 : s === 'detonate' ? 0.4 : 0.28 + this.macro.intensity * 0.12;
     const drumL = s === 'hold' ? 0.5 : s === 'detonate' ? 1.0 : 0.9;
     this.bass.setLevel(clamp01(bassL));
     this.lead.setLevel(clamp01(leadL));

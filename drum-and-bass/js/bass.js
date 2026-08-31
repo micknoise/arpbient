@@ -28,7 +28,7 @@ export class BassLayer {
     this.filterLFO.type = 'sine';
     this.filterLFO.frequency.value = 0.05;
     this.filterLFODepth = ctx.createGain();
-    this.filterLFODepth.gain.value = 180;
+    this.filterLFODepth.gain.value = 40;
     this.filterLFO.connect(this.filterLFODepth);
     this.filterLFO.start();
   }
@@ -44,8 +44,13 @@ export class BassLayer {
   setFilterRate(hz) {
     this.filterLFO.frequency.setTargetAtTime(hz, this.ctx.currentTime, 2);
   }
+  // The slow swing is capped so the filter can never be driven below the
+  // 40 Hz floor (a high-Q lowpass dragged toward 0 Hz is where the clicks
+  // came from). The ramp floor (see playNote) plus this cap keep the
+  // effective minimum at ~40 Hz even with the per-note wobble added on.
   setFilterDepth(hz) {
-    this.filterLFODepth.gain.setTargetAtTime(hz, this.ctx.currentTime, 2);
+    const depth = Math.max(0, Math.min(50, hz));
+    this.filterLFODepth.gain.setTargetAtTime(depth, this.ctx.currentTime, 2);
   }
 
   // Rolling Reese bass note. `wobble` = AM depth (0..1, defaults to the
@@ -107,12 +112,15 @@ export class BassLayer {
     const stopTime = t0 + attack + decay + 0.25;
 
     // The wobble: an LFO on the filter cutoff (AM), depth from `wobble`.
+    // Depth is capped so the AM can't swing the closed filter below the 40 Hz
+    // floor -- the Reese still wobbles, it just bottoms out clean instead of
+    // driving the resonant lowpass toward 0 Hz (the old click).
     if (wobble > 0.01) {
       const lfo = ctx.createOscillator();
       lfo.type = 'sine';
       lfo.frequency.value = wobbleRate;
       const lfoDepth = ctx.createGain();
-      lfoDepth.gain.value = (cutoffBase - cutoffFloor) * 0.5 * wobble;
+      lfoDepth.gain.value = Math.min((cutoffBase - cutoffFloor) * 0.5 * wobble, 50);
       lfo.connect(lfoDepth);
       lfoDepth.connect(filter.frequency);
       lfo.start(t0);
@@ -127,8 +135,10 @@ export class BassLayer {
     filter.connect(env);
     env.connect(this.bus);
 
+    // Ramp down to the floor (>=140 Hz) -- with the capped slow LFO (<=50)
+    // and wobble (<=50) the effective lowpass never falls below ~40 Hz.
     filter.frequency.setValueAtTime(cutoffBase, t0);
-    filter.frequency.exponentialRampToValueAtTime(Math.max(55, cutoffFloor), t0 + attack + decay);
+    filter.frequency.exponentialRampToValueAtTime(Math.max(140, cutoffFloor), t0 + attack + decay);
 
     env.gain.setValueAtTime(0.0001, t0);
     env.gain.linearRampToValueAtTime(velocity, t0 + attack);

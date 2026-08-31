@@ -24,7 +24,7 @@ export class BassLayer {
     this.filterLFO.type = 'sine';
     this.filterLFO.frequency.value = 0.05;
     this.filterLFODepth = ctx.createGain();
-    this.filterLFODepth.gain.value = 220;
+    this.filterLFODepth.gain.value = 40;
     this.filterLFO.connect(this.filterLFODepth);
     this.filterLFO.start();
   }
@@ -36,8 +36,13 @@ export class BassLayer {
   setFilterRate(hz) {
     this.filterLFO.frequency.setTargetAtTime(hz, this.ctx.currentTime, 2);
   }
+  // The slow swing is capped so the filter can never be driven below the
+  // 40 Hz floor (a high-Q lowpass dragged toward 0 Hz is where the clicks
+  // came from); the ramp floor in playNote keeps the effective minimum
+  // at ~40 Hz.
   setFilterDepth(hz) {
-    this.filterLFODepth.gain.setTargetAtTime(hz, this.ctx.currentTime, 2);
+    const depth = Math.max(0, Math.min(50, hz));
+    this.filterLFODepth.gain.setTargetAtTime(depth, this.ctx.currentTime, 2);
   }
 
   // Punchy bass hit. `glide` = seconds of portamento from the last note;
@@ -108,8 +113,10 @@ export class BassLayer {
     filter.connect(env);
     env.connect(this.bus);
 
+    // Ramp down to the floor (>=140 Hz); with the capped slow LFO (<=50)
+    // the effective lowpass never falls below ~40 Hz.
     filter.frequency.setValueAtTime(cutoffBase, t0);
-    filter.frequency.exponentialRampToValueAtTime(Math.max(55, cutoffFloor), t0 + attack + decay * 0.9);
+    filter.frequency.exponentialRampToValueAtTime(Math.max(140, cutoffFloor), t0 + attack + decay * 0.9);
 
     env.gain.setValueAtTime(0.0001, t0);
     env.gain.linearRampToValueAtTime(velocity, t0 + attack);

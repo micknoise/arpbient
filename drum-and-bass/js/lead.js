@@ -1,5 +1,5 @@
-import { midiToFreq } from './theory.js';
-import { createChorus } from './effects.js';
+import { midiToFreq, pick } from './theory.js';
+import { createChorus, createSaturationCurve } from './effects.js';
 
 // DnB lead: the liquid melodic top -- bright plucks (a "piano" timbre:
 // sine + triangle + a touch of saw through a chorus) for syncopated
@@ -98,12 +98,13 @@ export class LeadLayer {
     osc3.stop(stopTime);
   }
 
-  // Long singing sustained note -- the liquid moment. Rich, in-key, and
-  // alive: detuned saws with a sine body and a soft triangle a 12th up for
-  // air, a filter that opens from a darker start then settles (so the
-  // timbre keeps moving rather than holding flat), and vibrato that swells
-  // in. The shared slow filter LFO (setFilterRate) keeps it breathing too.
-  note(midi, time, { cutoffBase = 2200, q = 3, velocity = 0.32, decay = 1.6, vibrato = 0.28 } = {}) {
+  // Long singing sustained note -- the liquid moment, but with a stranger
+  // edge than a plain saw: a wider, random detune on the second saw, analog
+  // saturation for odd harmonics, and a resonant bandpass "formant" whose
+  // center sweeps to a random spot over the note (so every one is a
+  // different, moving vowel). Still built on the in-key pool note, and the
+  // shared slow filter LFO (setFilterRate) keeps it breathing.
+  note(midi, time, { cutoffBase = 2200, q = 3, velocity = 0.3, decay = 1.6, vibrato = 0.3 } = {}) {
     const ctx = this.ctx;
     const freq = midiToFreq(midi);
 
@@ -113,62 +114,84 @@ export class LeadLayer {
     const osc2 = ctx.createOscillator();
     osc2.type = 'sawtooth';
     osc2.frequency.value = freq;
-    osc2.detune.value = -11;
-    const sub = ctx.createOscillator();
-    sub.type = 'sine';
-    sub.frequency.value = freq;
+    osc2.detune.value = pick([-18, -26, 22, 34]);      // wider + random -- weirder
+    const body = ctx.createOscillator();
+    body.type = 'sine';
+    body.frequency.value = freq;
     const air = ctx.createOscillator();
     air.type = 'triangle';
     air.frequency.value = freq;
     air.detune.value = 7;
 
-    const mix = ctx.createGain();
-    mix.gain.value = 0.28;
-    const subGain = ctx.createGain();
-    subGain.gain.value = 0.5;
-    const airGain = ctx.createGain();
-    airGain.gain.value = 0.15;
+    const mix = ctx.createGain();       mix.gain.value = 0.4;
+    const bodyGain = ctx.createGain();  bodyGain.gain.value = 0.3;
+    const airGain = ctx.createGain();   airGain.gain.value = 0.14;
+
+    // Saturation: odd harmonics give the note a gritty, non-clean edge.
+    const shaper = ctx.createWaveShaper();
+    shaper.curve = createSaturationCurve(0.7 + Math.random() * 0.6);
+    shaper.oversample = '2x';
 
     const filter = ctx.createBiquadFilter();
     filter.type = 'lowpass';
     filter.Q.value = q;
     this.filterLFODepth.connect(filter.frequency);
 
+    // A resonant bandpass riding in parallel: its center sweeps to a random
+    // spot over the note, re-tinting the vowel so each note is strange.
+    const formant = ctx.createBiquadFilter();
+    formant.type = 'bandpass';
+    formant.Q.value = 7 + Math.random() * 9;
+    const formantGain = ctx.createGain();
+    formantGain.gain.value = 0.2 + Math.random() * 0.22;
+
     const env = ctx.createGain();
     env.gain.value = 0.0001;
 
+    // Vibrato swells in on the core saws.
     const lfo = ctx.createOscillator();
     lfo.type = 'sine';
-    lfo.frequency.value = 4.6 + Math.random() * 1.4;
+    lfo.frequency.value = 4.4 + Math.random() * 1.8;
     const lfoDepth = ctx.createGain();
     lfoDepth.gain.value = 0;
     lfo.connect(lfoDepth);
     lfoDepth.connect(osc.detune);
     lfoDepth.connect(osc2.detune);
 
+    // Wiring: core -> shaper (grit) -> lowpass -> env -> bus; the body + air
+    // feed the lowpass directly for a clean foundation, and the shaper also
+    // drives the moving bandpass formant.
     osc.connect(mix);
     osc2.connect(mix);
-    sub.connect(subGain);
+    mix.connect(shaper);
+    shaper.connect(filter);
+    body.connect(bodyGain);
     air.connect(airGain);
+    bodyGain.connect(filter);
     airGain.connect(filter);
-    mix.connect(filter);
-    subGain.connect(filter);
+    shaper.connect(formant);
+    formant.connect(formantGain);
+    formantGain.connect(filter);
     filter.connect(env);
     env.connect(this.bus);
 
     const attack = 0.02;
     const t0 = time;
-    const sustainLevel = Math.max(0.0005, velocity * 0.6);
+    const sustainLevel = Math.max(0.0005, velocity * 0.55);
     const stopTime = t0 + attack + decay + 0.5;
+
+    // The formant center wanders to a new random spot across the note.
+    formant.frequency.setValueAtTime(freq * (2 + Math.random() * 3), t0);
+    formant.frequency.exponentialRampToValueAtTime(freq * (3 + Math.random() * 5), t0 + decay);
 
     // Filter opens from a darker start to the target, then settles a touch
     // lower over the sustain -- the note breathes instead of holding flat.
-    filter.frequency.setValueAtTime(cutoffBase * 0.4, t0);
+    filter.frequency.setValueAtTime(Math.max(240, cutoffBase * 0.35), t0);
     filter.frequency.linearRampToValueAtTime(cutoffBase, t0 + 0.12 + Math.random() * 0.1);
-    filter.frequency.setTargetAtTime(Math.max(240, cutoffBase * 0.6), t0 + 0.2, 0.6);
+    filter.frequency.setTargetAtTime(Math.max(240, cutoffBase * 0.55), t0 + 0.2, 0.6);
 
     lfoDepth.gain.setValueAtTime(0, t0);
-    lfoDepth.gain.linearRampToValueAtTime(vibrato * 28, t0 + 0.3);
+    lfoDepth.gain.linearRampToValueAtTime(vibrato * 30, t0 + 0.3);
 
     env.gain.setValueAtTime(0.0001, t0);
     env.gain.linearRampToValueAtTime(velocity, t0 + attack);
@@ -181,8 +204,8 @@ export class LeadLayer {
     osc.stop(stopTime);
     osc2.start(t0);
     osc2.stop(stopTime);
-    sub.start(t0);
-    sub.stop(stopTime);
+    body.start(t0);
+    body.stop(stopTime);
     air.start(t0);
     air.stop(stopTime);
   }
