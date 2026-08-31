@@ -14,7 +14,7 @@ export class BassLayer {
     this.bus = ctx.createGain();
     this.bus.gain.value = 0;
     this.drive = ctx.createWaveShaper();
-    this.drive.curve = createSaturationCurve(0.4);
+    this.drive.curve = createSaturationCurve(0.25);
     this.drive.oversample = '2x';
     this.drive.connect(this.bus);
     this.bus.connect(this.output);

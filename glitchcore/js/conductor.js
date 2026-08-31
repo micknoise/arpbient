@@ -124,7 +124,7 @@ export class Conductor {
   _initMovement() {
     this.chordIndex = 0;
     this.stepCount = 0;
-    this.sectionUntilBar = pick([4, 8]);
+    this.sectionUntilBar = pick([8, 12]);
     this._advanceChord(this.ctx.currentTime, true);
     this._applySection('chop');
   }
@@ -268,7 +268,7 @@ export class Conductor {
     // for the full section, and rim + stabs join as the groove builds.
     if (barIndex > 0 && barIndex >= this.sectionUntilBar) {
       this._applySection(this._pickSection());
-      this.sectionUntilBar = barIndex + pick([4, 8]);
+      this.sectionUntilBar = barIndex + pick([8, 12]);
     } else if (barIndex > 0) {
       this.sectionBar++;
     }

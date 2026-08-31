@@ -118,7 +118,7 @@ export class Conductor {
   _initMovement() {
     this.chordIndex = 0;
     this.stepCount = 0;
-    this.sectionUntilBar = pick([4, 8]);
+    this.sectionUntilBar = pick([8, 12]);
     this._advanceChord(this.ctx.currentTime, true);
     this._applySection('main');
   }
@@ -248,7 +248,7 @@ export class Conductor {
     // and only builds by adding layers (see _layerOn).
     if (barIndex > 0 && barIndex >= this.sectionUntilBar) {
       this._applySection(this._pickSection());
-      this.sectionUntilBar = barIndex + pick([4, 8]);
+      this.sectionUntilBar = barIndex + pick([8, 12]);
     } else if (barIndex > 0) {
       this.sectionBar++;
     }
@@ -296,13 +296,15 @@ export class Conductor {
     this.rimPat = new Array(16).fill(0);
     this._mutateRim();
     this._applyLevels();
-    // Additive layers join as the section builds: open hats, rim, and the
-    // top voice (pluck in main / stab elsewhere). Peak is full immediately;
-    // breakdown stays sparse and only lets the top voice in late.
+    // Additive layers join as the section builds: open hats and rim fill
+    // in over the first couple of bars. The top voice (pluck in main /
+    // stab elsewhere) always starts on the section's first bar, with
+    // everything else -- it shouldn't read as a beat behind the section
+    // change. Peak is full immediately; breakdown keeps the rest sparse.
     this.layerGates =
       name === 'peak' ? {} :
-      name === 'breakdown' ? { openHat: 3, rim: 99, top: 1 } :
-      { openHat: 1, rim: 2, top: 1 };
+      name === 'breakdown' ? { openHat: 3, rim: 99 } :
+      { openHat: 1, rim: 2 };
     // A 'main' section's lead is sometimes the section-long polyrhythmic
     // dotted loop instead of the grid pluck (rolled once, with the section).
     this.poly = name === 'main' && Math.random() < 0.5;
@@ -480,8 +482,8 @@ export class Conductor {
 
   _applyLevels() {
     const s = this.macro.section;
-    const bassL = s === 'breakdown' ? 0.24 : 0.3 + this.macro.intensity * 0.08;
-    const leadL = s === 'main' ? 0.4 : s === 'peak' ? 0.5 : 0.32;
+    const bassL = s === 'breakdown' ? 0.2 : 0.26 + this.macro.intensity * 0.08;
+    const leadL = s === 'main' ? 0.42 : s === 'peak' ? 0.52 : 0.34;
     const drumL = s === 'breakdown' ? 0.75 : 0.9;
     this.bass.setLevel(clamp01(bassL));
     this.lead.setLevel(clamp01(leadL));

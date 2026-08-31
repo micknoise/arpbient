@@ -106,7 +106,7 @@ export class Conductor {
     this.chordIndex = 0;
     this.stepCount = 0;
     this.sweepBar = randInt(8, 16);
-    this.sectionUntilBar = pick([4, 8]);
+    this.sectionUntilBar = pick([8, 12]);
     this._advanceChord(true);
     this._applySection('drift');
     this._playChord(this.ctx.currentTime);
@@ -231,7 +231,7 @@ export class Conductor {
     // (see _layerOn) -- nothing drifts out of sync.
     if (barIndex > 0 && barIndex >= this.sectionUntilBar) {
       this._applySection(this._pickSection());
-      this.sectionUntilBar = barIndex + pick([4, 8]);
+      this.sectionUntilBar = barIndex + pick([8, 12]);
     } else if (barIndex > 0) {
       this.sectionBar++;
     }
