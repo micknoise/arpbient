@@ -35,6 +35,7 @@ function init() {
   conductor.setStutter(parseFloat(stutterSlider.value));
   conductor.setBreaks(parseFloat(breakSlider.value));
   conductor.setTempo(parseFloat(tempoSlider.value));
+  conductor.onMovementStart = updateStatus;
 }
 
 playBtn.addEventListener('click', async () => {

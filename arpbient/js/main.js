@@ -30,6 +30,7 @@ function init() {
   conductor.setDarknessOverride(parseFloat(darkSlider.value));
   conductor.setDensityOverride(parseFloat(densSlider.value));
   conductor.setTempo(parseFloat(tempoSlider.value));
+  conductor.onMovementStart = updateStatus;
 }
 
 playBtn.addEventListener('click', async () => {

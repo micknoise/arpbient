@@ -20,6 +20,17 @@ export class BassLayer {
 
     // AM amount 0..1 (the "Reese" slider).
     this.reese = 0.5;
+
+    // Shared slow timbral LFO -- layered under the per-note Reese wobble,
+    // it drifts the filter over seconds so the Reese keeps evolving. The
+    // conductor's texture drift steers its rate/depth (see setFilterRate).
+    this.filterLFO = ctx.createOscillator();
+    this.filterLFO.type = 'sine';
+    this.filterLFO.frequency.value = 0.05;
+    this.filterLFODepth = ctx.createGain();
+    this.filterLFODepth.gain.value = 180;
+    this.filterLFO.connect(this.filterLFODepth);
+    this.filterLFO.start();
   }
 
   setLevel(v) {
@@ -28,6 +39,13 @@ export class BassLayer {
 
   setReese(v) {
     this.reese = Math.max(0, Math.min(1, v));
+  }
+
+  setFilterRate(hz) {
+    this.filterLFO.frequency.setTargetAtTime(hz, this.ctx.currentTime, 2);
+  }
+  setFilterDepth(hz) {
+    this.filterLFODepth.gain.setTargetAtTime(hz, this.ctx.currentTime, 2);
   }
 
   // Rolling Reese bass note. `wobble` = AM depth (0..1, defaults to the
@@ -67,6 +85,7 @@ export class BassLayer {
     const filter = ctx.createBiquadFilter();
     filter.type = 'lowpass';
     filter.Q.value = q;
+    this.filterLFODepth.connect(filter.frequency);
 
     const env = ctx.createGain();
     env.gain.value = 0.0001;

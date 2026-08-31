@@ -35,6 +35,7 @@ function init() {
   conductor.setReese(parseFloat(reeseSlider.value));
   conductor.setLiquid(parseFloat(liquidSlider.value));
   conductor.setTempo(parseFloat(tempoSlider.value));
+  conductor.onMovementStart = updateStatus;
 }
 
 playBtn.addEventListener('click', async () => {

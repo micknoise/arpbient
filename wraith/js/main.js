@@ -33,6 +33,7 @@ function init() {
   conductor.setDensityOverride(parseFloat(tensionSlider.value));
   conductor.setBassDensityOverride(parseFloat(bassSlider.value));
   conductor.setTempo(parseFloat(tempoSlider.value));
+  conductor.onMovementStart = updateStatus;
 }
 
 playBtn.addEventListener('click', async () => {

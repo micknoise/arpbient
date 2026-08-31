@@ -10,10 +10,6 @@ function clamp01(v) {
   return Math.max(0, Math.min(1, v));
 }
 
-function clamp(v, lo, hi) {
-  return Math.max(lo, Math.min(hi, v));
-}
-
 // Generative horror composer. Owns musical time via a lookahead scheduler and
 // drives six voice layers around MOVEMENTS:
 //
@@ -66,7 +62,9 @@ export class Conductor {
 
     this.baseBpm = 72;
     this.bpm = this.baseBpm;
-    this.userTempo = null; // one-shot slider target, consumed at movement start
+    this.tempoMin = 50;
+    this.tempoMax = 96;
+    this._delayBeats = 1;
     this.beatsPerBar = 4;
     this.stepsPerBeat = 4; // 16th-note grid (for event alignment, not a running arp)
 
@@ -132,7 +130,7 @@ export class Conductor {
     this.running = true;
     this.stepCount = 0;
     this.nextStepTime = this.ctx.currentTime + 0.1;
-    this._beginNewMovement(0, this.nextStepTime, { first: true });
+    this._beginNewMovement(0, this.nextStepTime);
     this.drone.start(this.root, 7); // sub-octave bed: root + fifth
     this._rideTension();
     this.timerID = setInterval(() => this._scheduler(), this.lookahead);
@@ -481,7 +479,7 @@ export class Conductor {
 
   // A fresh movement: new key, mode, progression, tempo, bass density and mix
   // character — all held (roughly) steady until this movement's ending.
-  _beginNewMovement(barIndex, time, { first = false } = {}) {
+  _beginNewMovement(barIndex, time) {
     this.phase = 'normal';
     this.breathed = false;
     this.pendingEnding = false;
@@ -489,20 +487,18 @@ export class Conductor {
     this.shepardActive = false;
     this.lastBassSemi = 0;
 
-    this.root = DARK_ROOTS[Math.floor(Math.random() * DARK_ROOTS.length)];
-    this.mode = this._pickMode();
-    this.progression = PROGRESSIONS[Math.floor(Math.random() * PROGRESSIONS.length)];
     this.chordIndex = 0;
     this.currentDegree = 0;
-    // Tempo is a one-shot slider target or a fresh re-roll around the base
-    // -- never pinned across movements.
-    const t = this.userTempo;
-    this.userTempo = null;
-    this.bpm = t != null ? Math.round(clamp(t, 46, 100))
-      : Math.round(clamp(this.baseBpm + (Math.random() - 0.5) * 14, 46, 100));
-    this._syncDelay();
+
+    // The movement's bass density + mix character, re-rolled around the
+    // host's slider centers.
     this.movementBassDensity = clamp01(this.bassDensityBase + (Math.random() - 0.5) * 0.5);
     this._rollCharacter();
+
+    // Fresh key + guaranteed-new tempo, and the host status hook (fires on
+    // the play click too, not just the auto boundary).
+    this._rollMovement();
+    this._syncDelay();
 
     // A fresh length: roughly one minute of bars at this tempo.
     const bars = Math.round((this.bpm / 4) * (0.8 + Math.random() * 0.5));
@@ -511,13 +507,33 @@ export class Conductor {
     this.drone.setPitch(this.root); // glide the bed to the new key
     this._rideTension();
 
-    if (!first && this.onMovementStart) {
-      this.onMovementStart({ root: this.root, mode: this.mode, bpm: this.bpm, bassDensity: this.movementBassDensity });
-    }
-
     // Let the harmony begin, and have a bass plan ready for the first bar.
     this._advanceCell(barIndex, time);
     this._bassPlan = this._planBassBar();
+  }
+
+  // Re-rolled at every movement boundary (play click or auto): a fresh key
+  // (guaranteed to differ from the last) and a fresh tempo (guaranteed
+  // different), then the host status hook so the key/bpm readout updates.
+  _rollMovement() {
+    let r;
+    do { r = DARK_ROOTS[Math.floor(Math.random() * DARK_ROOTS.length)]; } while (r === this.root && DARK_ROOTS.length > 1);
+    this.root = r;
+    this.mode = this._pickMode();
+    this.progression = PROGRESSIONS[Math.floor(Math.random() * PROGRESSIONS.length)];
+    this.bpm = this._rollTempo();
+    this.baseBpm = this.bpm;
+    if (this.onMovementStart) {
+      this.onMovementStart({ root: this.root, mode: this.mode, bpm: this.bpm, bassDensity: this.movementBassDensity });
+    }
+  }
+
+  _rollTempo() {
+    const span = this.tempoMax - this.tempoMin;
+    if (span <= 0) return this.tempoMin;
+    let t;
+    do { t = this.tempoMin + Math.floor(Math.random() * (span + 1)); } while (t === this.bpm);
+    return t;
   }
 
   // Re-roll the mix's character for a new movement: a clear step from the
@@ -552,15 +568,24 @@ export class Conductor {
   // spacings (3/4 beat, 1 beat, just under 2 beats for the cascade tail).
   // This logic is identical across all nine engines.
   _syncDelay() {
-    const beats = [0.75, 1, 1.9][Math.floor(Math.random() * 3)];
-    this.core.setDelayTime((60 / this.bpm) * beats);
+    this._delayBeats = [0.75, 1, 1.9][Math.floor(Math.random() * 3)];
+    this._retuneDelay();
+  }
+
+  _retuneDelay() {
+    this.core.setDelayTime((60 / this.bpm) * this._delayBeats);
   }
 
   // ---- Public control surface (same names as the ambient version) ----
 
+  // Live tempo: the slider sets the target immediately; if a movement is in
+  // flight it takes effect now (and the shared delay re-locks to it).
   setTempo(bpm) {
-    // One-shot: applied to the next movement start, then re-rolls freely.
-    this.userTempo = bpm;
+    this.baseBpm = Math.max(this.tempoMin, Math.min(this.tempoMax, bpm));
+    if (this.running) {
+      this.bpm = this.baseBpm;
+      this._retuneDelay();
+    }
   }
 
   setDarknessOverride(v) {

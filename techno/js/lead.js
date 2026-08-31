@@ -14,10 +14,28 @@ export class LeadLayer {
     this.bus.gain.value = 0;
     this.bus.connect(this.output);
     audioCore.connectLayerOutput(this.output, { reverbAmount, delayAmount });
+
+    // Shared slow filter LFO -- the lead's filter keeps breathing as the
+    // conductor's texture drift re-rolls its rate/depth (see setFilterRate),
+    // so the top voice travels through timbres instead of sitting still.
+    this.filterLFO = ctx.createOscillator();
+    this.filterLFO.type = 'sine';
+    this.filterLFO.frequency.value = 0.06;
+    this.filterLFODepth = ctx.createGain();
+    this.filterLFODepth.gain.value = 360;
+    this.filterLFO.connect(this.filterLFODepth);
+    this.filterLFO.start();
   }
 
   setLevel(v) {
     this.bus.gain.setTargetAtTime(v, this.ctx.currentTime, 0.8);
+  }
+
+  setFilterRate(hz) {
+    this.filterLFO.frequency.setTargetAtTime(hz, this.ctx.currentTime, 2);
+  }
+  setFilterDepth(hz) {
+    this.filterLFODepth.gain.setTargetAtTime(hz, this.ctx.currentTime, 2);
   }
 
   // Short resonant pluck -- the arpeggio voice.
@@ -36,6 +54,7 @@ export class LeadLayer {
     const filter = ctx.createBiquadFilter();
     filter.type = 'lowpass';
     filter.Q.value = q;
+    this.filterLFODepth.connect(filter.frequency);
 
     const env = ctx.createGain();
     env.gain.value = 0.0001;
@@ -108,6 +127,7 @@ export class LeadLayer {
     filter.type = 'lowpass';
     filter.Q.value = q;
     filter.frequency.value = cutoffBase;
+    this.filterLFODepth.connect(filter.frequency);
 
     const env = ctx.createGain();
     env.gain.value = 0.0001;

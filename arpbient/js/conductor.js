@@ -39,7 +39,9 @@ export class Conductor {
 
     this.baseBpm = 76;
     this.bpm = this.baseBpm;
-    this.userTempo = null; // one-shot slider target, consumed at movement start
+    this.tempoMin = 50;
+    this.tempoMax = 100;
+    this._delayBeats = 1;
     this.beatsPerBar = 4;
     this.stepsPerBeat = 4; // 16th-note grid
 
@@ -85,14 +87,9 @@ export class Conductor {
     this.chordIndex = 0;
     this.stepCount = 0;
     this.phase = 'normal';
-    this.movementEndBar = this._pickMovementLength();
     this.padGate = { active: false, endBar: 0, tick: 0 };
     this.bassSixteenths = false;
-    if (this.userTempo != null) {
-      this.baseBpm = this.userTempo;
-      this.bpm = this.baseBpm;
-      this.userTempo = null; // one-shot: applies to this movement only
-    }
+    this._rollMovement();
     this._syncDelay();
     this.nextStepTime = this.ctx.currentTime + 0.1;
     this.timerID = setInterval(() => this._scheduler(), this.lookahead);
@@ -108,8 +105,12 @@ export class Conductor {
   // spacings (3/4 beat, 1 beat, just under 2 beats for the cascade tail).
   // This logic is identical across all nine engines.
   _syncDelay() {
-    const beats = [0.75, 1, 1.9][Math.floor(Math.random() * 3)];
-    this.core.setDelayTime((60 / this.bpm) * beats);
+    this._delayBeats = [0.75, 1, 1.9][Math.floor(Math.random() * 3)];
+    this._retuneDelay();
+  }
+
+  _retuneDelay() {
+    this.core.setDelayTime((60 / this.bpm) * this._delayBeats);
   }
 
   _scheduler() {
@@ -288,8 +289,27 @@ export class Conductor {
     return 24 + Math.floor(Math.random() * 17); // 24-40 bars
   }
 
-  _pickNewTempo() {
-    return Math.round(55 + Math.random() * 70); // 55-125 bpm
+  // Every movement boundary (play click or auto) re-rolls key AND tempo --
+  // the tempo is guaranteed different from the one it's replacing, and the
+  // slider stays the live target for the in-flight movement.
+  _rollMovement() {
+    let r;
+    do { r = DARK_ROOTS[Math.floor(Math.random() * DARK_ROOTS.length)]; } while (r === this.root && DARK_ROOTS.length > 1);
+    this.root = r;
+    this.mode = ['aeolian', 'dorian', 'phrygian'][Math.floor(Math.random() * 3)];
+    this.progression = PROGRESSIONS[Math.floor(Math.random() * PROGRESSIONS.length)];
+    this.movementEndBar = this._pickMovementLength();
+    this.bpm = this._rollTempo();
+    this.baseBpm = this.bpm;
+    if (this.onMovementStart) this.onMovementStart({ root: this.root, mode: this.mode, bpm: this.bpm });
+  }
+
+  _rollTempo() {
+    const span = this.tempoMax - this.tempoMin;
+    if (span <= 0) return this.tempoMin;
+    let t;
+    do { t = this.tempoMin + Math.floor(Math.random() * (span + 1)); } while (t === this.bpm);
+    return t;
   }
 
   // Direction for the ending flourish: ascending, descending, an arch
@@ -372,17 +392,9 @@ export class Conductor {
   _beginNewMovement(time) {
     this.phase = 'normal';
     this.stepCount = 0;
-    // Tempo is a one-shot slider target or a fresh re-roll -- never pinned
-    // across movements.
-    const t = this.userTempo;
-    this.userTempo = null;
-    this.baseBpm = t != null ? t : this._pickNewTempo();
-    this.bpm = this.baseBpm;
+    this._rollMovement();
     this._syncDelay();
-    this.root = DARK_ROOTS[Math.floor(Math.random() * DARK_ROOTS.length)];
-    this.movementEndBar = this._pickMovementLength();
     this._applyLevels();
-    if (this.onMovementStart) this.onMovementStart({ root: this.root, mode: this.mode, bpm: this.bpm });
     this._advanceChord(time);
   }
 
@@ -433,9 +445,14 @@ export class Conductor {
     this.arp.setFilterRate(0.05 + this.macro.intensity * 0.4);
   }
 
+  // Live tempo: the slider sets the target immediately; if a movement is in
+  // flight it takes effect now (and the shared delay re-locks to it).
   setTempo(bpm) {
-    // One-shot: applied to the next movement start, then re-rolls freely.
-    this.userTempo = bpm;
+    this.baseBpm = Math.max(this.tempoMin, Math.min(this.tempoMax, bpm));
+    if (this.running) {
+      this.bpm = this.baseBpm;
+      this._retuneDelay();
+    }
   }
 
   setDarknessOverride(v) {

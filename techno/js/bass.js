@@ -19,10 +19,28 @@ export class BassLayer {
     this.drive.connect(this.bus);
     this.bus.connect(this.output);
     audioCore.connectLayerOutput(this.output, { reverbAmount, delayAmount });
+
+    // Shared slow timbral LFO -- the acid filter keeps drifting over seconds
+    // so the line keeps evolving. The conductor's texture drift steers its
+    // rate/depth (see setFilterRate).
+    this.filterLFO = ctx.createOscillator();
+    this.filterLFO.type = 'sine';
+    this.filterLFO.frequency.value = 0.05;
+    this.filterLFODepth = ctx.createGain();
+    this.filterLFODepth.gain.value = 200;
+    this.filterLFO.connect(this.filterLFODepth);
+    this.filterLFO.start();
   }
 
   setLevel(v) {
     this.bus.gain.setTargetAtTime(v, this.ctx.currentTime, 0.6);
+  }
+
+  setFilterRate(hz) {
+    this.filterLFO.frequency.setTargetAtTime(hz, this.ctx.currentTime, 2);
+  }
+  setFilterDepth(hz) {
+    this.filterLFODepth.gain.setTargetAtTime(hz, this.ctx.currentTime, 2);
   }
 
   setDrive(amount) {
@@ -56,6 +74,7 @@ export class BassLayer {
     const filter = ctx.createBiquadFilter();
     filter.type = 'lowpass';
     filter.Q.value = q;
+    this.filterLFODepth.connect(filter.frequency);
 
     const env = ctx.createGain();
     env.gain.value = 0.0001;

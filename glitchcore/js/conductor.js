@@ -1,4 +1,4 @@
-import { MODES, buildChord, voiceChordOpen, buildArpPool, pick, randInt, clamp01 } from './theory.js';
+import { MODES, buildChord, voiceChordOpen, buildArpPool, buildLeadPool, pick, randInt, clamp01 } from './theory.js';
 import { BassLayer } from './bass.js';
 import { LeadLayer } from './lead.js';
 import { DrumKit } from './drum.js';
@@ -29,6 +29,9 @@ export class Conductor {
 
     this.baseBpm = 150;
     this.bpm = this.baseBpm;
+    this.tempoMin = 140;   // slider bounds -- tempo rolls live within these
+    this.tempoMax = 170;
+    this._delayBeats = 1;  // BPM-locked delay spacing (re-rolled per movement)
     this.beatsPerBar = 4;
     this.stepsPerBeat = 4;
 
@@ -71,14 +74,14 @@ export class Conductor {
 
     this.chordSemis = [0, 7, 12];
     this.arpPool = [72, 79, 84];
+    // Seed the chord-aware pools so the pattern builders stay safe to call
+    // from a slider before the first chord has advanced.
+    this.melodyPool = [72, 79, 84];
+    this.stabNotes = [60, 67, 72];
 
     this.phase = 'normal';
     this.phaseUntil = 0;
     this.movementEndBar = this._pickMovementLength();
-
-    // Tempo from the slider is a *target*: it only takes effect at a
-    // movement boundary, so tempo never changes mid-movement.
-    this.userTempo = null;
 
     this.running = false;
 
@@ -102,11 +105,9 @@ export class Conductor {
   start() {
     if (this.running) return;
     this.running = true;
-    if (this.userTempo != null) {
-      this.baseBpm = this.userTempo;
-      this.bpm = this.baseBpm;
-      this.userTempo = null; // one-shot: applies to this movement only
-    }
+    // Play always begins a fresh movement: a new key, a new tempo (rolled
+    // within the slider range), new patterns -- never a replay of the last.
+    this._rollMovement();
     this._initMovement();
     this.phase = 'normal';
     this._syncDelay();
@@ -240,15 +241,17 @@ export class Conductor {
       });
     }
 
-    // Rare long tone (a breath in the chaos)
+    // The sustained breath -- a note from the higher chord-aware pool, so
+    // it reflects the key rather than a random arp tone.
     const l = this.leadPat[barStep];
     if (l) {
-      this.lead.note(pick(this.arpPool) + 12, time, {
-        cutoffBase: 2000,
+      const mp = this.melodyPool;
+      this.lead.note(mp[l.noteIdx % mp.length], time, {
+        cutoffBase: 2200,
         q: 4,
         velocity: l.vel,
-        decay: 1.2,
-        vibrato: 0.3,
+        decay: 1.5,
+        vibrato: 0.32,
       });
     }
   }
@@ -274,6 +277,11 @@ export class Conductor {
     const target = 0.3 + Math.random() * 0.6;
     this.macro.intensity = clamp01(this.macro.intensity + (target - this.macro.intensity) * 0.4);
 
+    // Continuous texture drift: the shared filter LFOs on bass + lead keep
+    // gliding (rate + depth wander), so the timbre never sits still -- the
+    // "exploring the space" feel carried over from arpbient.
+    this._driftTexture();
+
     if (barIndex >= this.movementEndBar) {
       this._beginEnding(time);
     }
@@ -288,6 +296,7 @@ export class Conductor {
     if (name !== 'hold') this._makeRimPattern();
     this._makeBassPattern();
     this._makeArpPattern();
+    this._makeLeadPattern();
     this._makeHatPattern();
     this._makeStabPattern();
     if (name === 'hold') this.stabPat = new Array(16).fill(0); // stutters float
@@ -319,6 +328,10 @@ export class Conductor {
     this.chordIndex++;
     this.chordSemis = buildChord(this.mode, degree, { seventh: Math.random() < 0.5, add9: Math.random() < 0.4 });
     this.arpPool = buildArpPool(this.root, this.chordSemis, 12);
+    // Higher, chord-anchored pool for the sustained breath: chord tones plus
+    // a few passing scale tones an octave+ up, so it reflects the harmony
+    // rather than a random arp tone.
+    this.melodyPool = buildLeadPool(this.root, this.mode, this.chordSemis, { fromOctave: 24, octaves: 1 });
     this.stabNotes = voiceChordOpen(this.root, this.chordSemis);
     if (!silent && this.onChord) {
       this.onChord({ root: this.root, mode: this.mode, degree, midiNotes: this.stabNotes });
@@ -365,11 +378,28 @@ export class Conductor {
       pat[s] = { noteIdx: idx, vel: Math.random() < 0.08 ? vel * 1.5 : vel };
     }
     this.arpPat = pat;
-    // Rare long tone, mostly in 'hold' sections.
-    this.leadPat = new Array(16).fill(null);
-    if (this.macro.section === 'hold' && Math.random() < 0.6) {
-      this.leadPat[pick([0, 4, 8])] = { noteIdx: 0, vel: 0.3 };
-    }
+  }
+
+  // The sustained breath: a short in-key phrase of 2-4 long tones that cuts
+  // through the chaos, anchored on chord tones with a little contour. Fuller
+  // in the drumless 'hold' (where the lead floats), a rare note elsewhere.
+  // Notes come from the higher chord-aware pool (melodyPool), so the line
+  // reflects the current harmony instead of a random arp tone.
+  _makeLeadPattern() {
+    const pat = new Array(16).fill(null);
+    const len = Math.max(1, this.melodyPool.length);
+    const hold = this.macro.section === 'hold';
+    const placements = hold
+      ? pick([[0, 8], [0, 6, 12], [4, 12], [0, 8, 12], [0, 4, 8, 12]])
+      : Math.random() < 0.3 ? pick([[0], [8]]) : [];
+    let idx = Math.floor(Math.random() * Math.min(4, len));
+    let dir = Math.random() < 0.5 ? 1 : -1;
+    placements.forEach((step, i) => {
+      pat[step] = { noteIdx: ((idx % len) + len) % len, vel: i === 0 ? 0.34 : 0.26 + Math.random() * 0.08 };
+      idx += dir * pick([1, 1, 2]);
+      if (Math.random() < 0.3) dir *= -1;
+    });
+    this.leadPat = pat;
   }
 
   // Aggressive drum mutation -- extra snare ghosts, kick pickups, rim blips.
@@ -478,8 +508,30 @@ export class Conductor {
     return randInt(28, 44); // ~45s-70s at hardcore tempos
   }
 
-  _pickNewTempo() {
-    return randInt(142, 168);
+  // Re-roll what should be fresh at a movement boundary. Key, mode, and
+  // progression are always new; tempo is re-rolled within the slider range
+  // so it always differs from the movement it replaces.
+  _rollMovement() {
+    const roots = [40, 43, 45, 47, 48];
+    let r;
+    do { r = pick(roots); } while (r === this.root);
+    this.root = r;
+    this.mode = this._pickMode();
+    this.progression = pick(PROGRESSIONS);
+    this.movementEndBar = this._pickMovementLength();
+    this.bpm = this._rollTempo();
+    this.baseBpm = this.bpm;
+    if (this.onMovementStart) this.onMovementStart({ root: this.root, mode: this.mode, bpm: this.bpm });
+  }
+
+  _rollTempo() {
+    const span = this.tempoMax - this.tempoMin;
+    if (span <= 0) return this.tempoMin;
+    let t;
+    do {
+      t = this.tempoMin + Math.floor(Math.random() * (span + 1));
+    } while (t === this.bpm);
+    return t;
   }
 
   _applyLevels() {
@@ -491,6 +543,24 @@ export class Conductor {
     this.lead.setLevel(clamp01(leadL));
     this.kit.setLevel(clamp01(drumL));
     this.kit.setKickLevel(1.0);
+  }
+
+  // Slow, continuous evolution of the shared timbral LFOs on bass + lead.
+  // The conductor random-walks rate + depth each bar; each layer eases to
+  // the new value (2s), so the filter keeps gliding for the whole movement.
+  _driftTexture() {
+    this._fRate = clamp01((this._fRate != null ? this._fRate : 0.5) + (Math.random() - 0.5) * 0.3);
+    this._fAmt = clamp01((this._fAmt != null ? this._fAmt : 0.5) + (Math.random() - 0.5) * 0.3);
+    const hz = 0.03 + this._fRate * 0.13;   // 0.03-0.16 Hz
+    const depth = 120 + this._fAmt * 480;   // 120-600 Hz
+    if (this.bass && this.bass.setFilterRate) {
+      this.bass.setFilterRate(hz * 0.7);
+      this.bass.setFilterDepth(depth * 0.5);
+    }
+    if (this.lead && this.lead.setFilterRate) {
+      this.lead.setFilterRate(hz);
+      this.lead.setFilterDepth(depth);
+    }
   }
 
   // Ending: tom fill, riser, then a detonation hit -- sub drop, kick,
@@ -532,35 +602,36 @@ export class Conductor {
 
   _beginNewMovement(time) {
     this.phase = 'normal';
-    // Tempo is a one-shot slider target or a fresh re-roll -- never pinned
-    // across movements.
-    const t = this.userTempo;
-    this.userTempo = null;
-    this.baseBpm = t != null ? t : this._pickNewTempo();
-    this.bpm = this.baseBpm;
-    this.root = pick([40, 43, 45, 47, 48]);
-    this.mode = this._pickMode();
-    this.progression = pick(PROGRESSIONS);
-    this.movementEndBar = this._pickMovementLength();
+    // Every boundary is a fresh movement: a new key, a new tempo (always
+    // different), new patterns -- whether Play started it or the piece ran
+    // to its end.
+    this._rollMovement();
     this.sectionUntilBar = 0;
     this._initMovement();
     this._syncDelay();
     this.nextStepTime = Math.max(this.nextStepTime, time + 0.05);
-    if (this.onMovementStart) this.onMovementStart({ root: this.root, mode: this.mode, bpm: this.bpm });
   }
 
   // Re-roll the delay time each movement: one of three BPM-locked
   // spacings (3/4 beat, 1 beat, just under 2 beats for the cascade tail).
-  // This logic is identical across all nine engines.
+  // The beat choice is shared across all nine engines; _retuneDelay keeps
+  // the time locked to the beat when the tempo moves live mid-movement.
   _syncDelay() {
-    const beats = [0.75, 1, 1.9][Math.floor(Math.random() * 3)];
-    this.core.setDelayTime((60 / this.bpm) * beats);
+    this._delayBeats = [0.75, 1, 1.9][Math.floor(Math.random() * 3)];
+    this._retuneDelay();
+  }
+  _retuneDelay() {
+    this.core.setDelayTime((60 / this.bpm) * this._delayBeats);
   }
 
-  // Target tempo only -- applied at the next movement boundary (or on the
-  // next start), never mid-movement.
+  // Live tempo: the slider retimes the current movement immediately and
+  // becomes the anchor the next roll draws from.
   setTempo(bpm) {
-    this.userTempo = bpm;
+    this.baseBpm = Math.max(this.tempoMin, Math.min(this.tempoMax, bpm));
+    if (this.running) {
+      this.bpm = this.baseBpm;
+      this._retuneDelay();
+    }
   }
 
   setStutter(v) {

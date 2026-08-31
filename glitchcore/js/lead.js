@@ -14,10 +14,28 @@ export class LeadLayer {
     this.bus.gain.value = 0;
     this.bus.connect(this.output);
     audioCore.connectLayerOutput(this.output, { reverbAmount, delayAmount });
+
+    // Shared slow filter LFO -- the lead's timbre keeps drifting as the
+    // conductor's texture drift re-rolls its rate/depth (see setFilterRate),
+    // so even the hard blips travel through the filter instead of sitting.
+    this.filterLFO = ctx.createOscillator();
+    this.filterLFO.type = 'sine';
+    this.filterLFO.frequency.value = 0.06;
+    this.filterLFODepth = ctx.createGain();
+    this.filterLFODepth.gain.value = 420;
+    this.filterLFO.connect(this.filterLFODepth);
+    this.filterLFO.start();
   }
 
   setLevel(v) {
     this.bus.gain.setTargetAtTime(v, this.ctx.currentTime, 0.6);
+  }
+
+  setFilterRate(hz) {
+    this.filterLFO.frequency.setTargetAtTime(hz, this.ctx.currentTime, 2);
+  }
+  setFilterDepth(hz) {
+    this.filterLFODepth.gain.setTargetAtTime(hz, this.ctx.currentTime, 2);
   }
 
   // One hard square blip.
@@ -32,6 +50,7 @@ export class LeadLayer {
     filter.type = 'lowpass';
     filter.frequency.value = cutoffBase;
     filter.Q.value = q;
+    this.filterLFODepth.connect(filter.frequency);
     const env = ctx.createGain();
     env.gain.value = 0.0001;
     osc.connect(filter);
@@ -102,8 +121,12 @@ export class LeadLayer {
     }
   }
 
-  // Rare long ringing tone (the odd breath of melody in the chaos).
-  note(midi, time, { cutoffBase = 2200, q = 4, velocity = 0.3, decay = 1.4, vibrato = 0.3 } = {}) {
+  // Rare long ringing tone -- the odd breath of melody in the chaos. Rich
+  // and alive: detuned saws with a soft triangle a 12th up for air, a
+  // filter that opens from a darker start then settles (so the timbre keeps
+  // moving), and vibrato that swells in. The shared slow filter LFO keeps
+  // it breathing too.
+  note(midi, time, { cutoffBase = 2200, q = 4, velocity = 0.3, decay = 1.5, vibrato = 0.32 } = {}) {
     const ctx = this.ctx;
     const freq = midiToFreq(midi);
     const osc = ctx.createOscillator();
@@ -112,17 +135,23 @@ export class LeadLayer {
     const osc2 = ctx.createOscillator();
     osc2.type = 'sawtooth';
     osc2.frequency.value = freq;
-    osc2.detune.value = -10;
+    osc2.detune.value = -11;
+    const air = ctx.createOscillator();
+    air.type = 'triangle';
+    air.frequency.value = freq;
+    air.detune.value = 7;
+    const airGain = ctx.createGain();
+    airGain.gain.value = 0.16;
     const filter = ctx.createBiquadFilter();
     filter.type = 'lowpass';
-    filter.frequency.value = cutoffBase;
     filter.Q.value = q;
+    this.filterLFODepth.connect(filter.frequency);
     const env = ctx.createGain();
     env.gain.value = 0.0001;
 
     const lfo = ctx.createOscillator();
     lfo.type = 'sine';
-    lfo.frequency.value = 5.6;
+    lfo.frequency.value = 4.8 + Math.random() * 1.6;
     const lfoDepth = ctx.createGain();
     lfoDepth.gain.value = 0;
     lfo.connect(lfoDepth);
@@ -131,22 +160,30 @@ export class LeadLayer {
 
     osc.connect(filter);
     osc2.connect(filter);
+    air.connect(airGain);
+    airGain.connect(filter);
     filter.connect(env);
     env.connect(this.bus);
 
     const attack = 0.015;
     const t0 = time;
     const sustainLevel = Math.max(0.0005, velocity * 0.55);
-    const stopTime = t0 + attack + decay + 0.4;
+    const stopTime = t0 + attack + decay + 0.5;
+
+    // Filter opens from a darker start to the target, then settles a touch
+    // lower over the sustain -- the note breathes instead of holding flat.
+    filter.frequency.setValueAtTime(cutoffBase * 0.4, t0);
+    filter.frequency.linearRampToValueAtTime(cutoffBase, t0 + 0.12 + Math.random() * 0.1);
+    filter.frequency.setTargetAtTime(Math.max(260, cutoffBase * 0.6), t0 + 0.2, 0.6);
 
     lfoDepth.gain.setValueAtTime(0, t0);
-    lfoDepth.gain.linearRampToValueAtTime(vibrato * 28, t0 + 0.12);
+    lfoDepth.gain.linearRampToValueAtTime(vibrato * 30, t0 + 0.3);
 
     env.gain.setValueAtTime(0.0001, t0);
     env.gain.linearRampToValueAtTime(velocity, t0 + attack);
     env.gain.exponentialRampToValueAtTime(sustainLevel, t0 + attack + decay);
     env.gain.setValueAtTime(sustainLevel, t0 + attack + decay);
-    env.gain.exponentialRampToValueAtTime(0.0001, t0 + attack + decay + 0.2);
+    env.gain.exponentialRampToValueAtTime(0.0001, t0 + attack + decay + 0.25);
 
     lfo.start(t0);
     lfo.stop(stopTime);
@@ -154,6 +191,8 @@ export class LeadLayer {
     osc.stop(stopTime);
     osc2.start(t0);
     osc2.stop(stopTime);
+    air.start(t0);
+    air.stop(stopTime);
   }
 
   // Final chord cluster.

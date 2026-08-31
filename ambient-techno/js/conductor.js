@@ -25,6 +25,9 @@ export class Conductor {
 
     this.baseBpm = 108;
     this.bpm = this.baseBpm;
+    this.tempoMin = 90;
+    this.tempoMax = 120;
+    this._delayBeats = 1;
     this.beatsPerBar = 4;
     this.stepsPerBeat = 4;
     this.barsPerChord = 2;
@@ -68,7 +71,6 @@ export class Conductor {
     this.phase = 'normal';
     this.phaseUntil = 0;
     this.movementEndBar = this._pickMovementLength();
-    this.userTempo = null;
     this.sweepBar = 8;
 
     this.running = false;
@@ -86,10 +88,7 @@ export class Conductor {
   start() {
     if (this.running) return;
     this.running = true;
-    if (this.userTempo != null) {
-      this.bpm = this.userTempo;
-      this.userTempo = null; // one-shot: applies to this movement only
-    }
+    this._rollMovement();
     this._initMovement();
     this.phase = 'normal';
     this._syncDelay();
@@ -417,8 +416,28 @@ export class Conductor {
     return randInt(32, 56); // long, slow movements (~70s-2min)
   }
 
-  _pickNewTempo() {
-    return randInt(96, 118);
+  // Every movement boundary (play click or auto) re-rolls key AND tempo --
+  // the tempo is guaranteed different from the one it's replacing, and the
+  // slider stays the live target for the in-flight movement.
+  _rollMovement() {
+    const roots = [40, 43, 45, 47, 48];
+    let r;
+    do { r = pick(roots); } while (r === this.root);
+    this.root = r;
+    this.mode = Math.random() < 0.7 ? 'aeolian' : 'dorian';
+    this.progression = pick(PROGRESSIONS);
+    this.movementEndBar = this._pickMovementLength();
+    this.bpm = this._rollTempo();
+    this.baseBpm = this.bpm;
+    if (this.onMovementStart) this.onMovementStart({ root: this.root, mode: this.mode, bpm: this.bpm });
+  }
+
+  _rollTempo() {
+    const span = this.tempoMax - this.tempoMin;
+    if (span <= 0) return this.tempoMin;
+    let t;
+    do { t = this.tempoMin + Math.floor(Math.random() * (span + 1)); } while (t === this.bpm);
+    return t;
   }
 
   _applyLevels() {
@@ -463,15 +482,8 @@ export class Conductor {
 
   _beginNewMovement(time) {
     this.phase = 'normal';
-    // Tempo is a one-shot slider target or a fresh re-roll -- never pinned
-    // across movements.
-    const t = this.userTempo;
-    this.userTempo = null;
-    this.bpm = t != null ? t : this._pickNewTempo();
-    this.root = pick([40, 43, 45, 47, 48]);
-    this.mode = Math.random() < 0.7 ? 'aeolian' : 'dorian';
-    this.progression = pick(PROGRESSIONS);
-    this.movementEndBar = this._pickMovementLength();
+    this._rollMovement();
+    this.sectionUntilBar = 0;
     this._surging = false;
     this.intensityTarget = 0.3;
     this.macro.intensity = 0.3;
@@ -479,19 +491,28 @@ export class Conductor {
     this._initMovement();
     this._syncDelay();
     this.nextStepTime = Math.max(this.nextStepTime, time + 0.05);
-    if (this.onMovementStart) this.onMovementStart({ root: this.root, mode: this.mode, bpm: this.bpm });
   }
 
   // Re-roll the delay time each movement: one of three BPM-locked
   // spacings (3/4 beat, 1 beat, just under 2 beats for the cascade tail).
   // This logic is identical across all nine engines.
   _syncDelay() {
-    const beats = [0.75, 1, 1.9][Math.floor(Math.random() * 3)];
-    this.core.setDelayTime((60 / this.bpm) * beats);
+    this._delayBeats = [0.75, 1, 1.9][Math.floor(Math.random() * 3)];
+    this._retuneDelay();
   }
 
+  _retuneDelay() {
+    this.core.setDelayTime((60 / this.bpm) * this._delayBeats);
+  }
+
+  // Live tempo: the slider sets the target immediately; if a movement is in
+  // flight it takes effect now (and the shared delay re-locks to it).
   setTempo(bpm) {
-    this.userTempo = bpm;
+    this.baseBpm = Math.max(this.tempoMin, Math.min(this.tempoMax, bpm));
+    if (this.running) {
+      this.bpm = this.baseBpm;
+      this._retuneDelay();
+    }
   }
 
   setSpace(v) {

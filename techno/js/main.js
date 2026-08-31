@@ -38,6 +38,7 @@ function init() {
   core.setSaturation(0.1 + parseFloat(driveSlider.value) * 0.45);
   conductor.setDensity(parseFloat(densSlider.value));
   conductor.setTempo(parseFloat(tempoSlider.value));
+  conductor.onMovementStart = updateStatus;
 }
 
 playBtn.addEventListener('click', async () => {

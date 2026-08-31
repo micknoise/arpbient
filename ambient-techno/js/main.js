@@ -37,6 +37,7 @@ function init() {
   conductor.setDensity(parseFloat(densSlider.value));
   conductor.setWarmth(parseFloat(warmSlider.value));
   conductor.setTempo(parseFloat(tempoSlider.value));
+  conductor.onMovementStart = updateStatus;
 }
 
 playBtn.addEventListener('click', async () => {

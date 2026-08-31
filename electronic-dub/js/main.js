@@ -35,6 +35,7 @@ function init() {
   conductor.setEcho(parseFloat(echoSlider.value));
   conductor.setDropouts(parseFloat(dropSlider.value));
   conductor.setTempo(parseFloat(tempoSlider.value));
+  conductor.onMovementStart = updateStatus;
 }
 
 playBtn.addEventListener('click', async () => {
