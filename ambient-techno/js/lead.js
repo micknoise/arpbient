@@ -1,4 +1,5 @@
 import { midiToFreq } from './theory.js';
+import { reclaim } from './effects.js';
 
 // Ambient-techno lead: sparse, long notes with big reverb/delay tails.
 // A single detuned-saw + sine blend through a gentle lowpass; the
@@ -67,6 +68,7 @@ export class LeadLayer {
       o.start(t0);
       o.stop(stopTime);
     });
+    reclaim(osc, osc, sine, sineGain, vibrato, depth, filter, env);
   }
 
   // A short, quiet "tick" pluck for the sequenced texture.
@@ -91,5 +93,6 @@ export class LeadLayer {
     const stopTime = time + decay + 0.2;
     osc.start(time);
     osc.stop(stopTime);
+    reclaim(osc, osc, filter, env);
   }
 }

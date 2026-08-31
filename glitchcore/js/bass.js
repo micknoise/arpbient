@@ -1,4 +1,5 @@
 import { midiToFreq } from './theory.js';
+import { reclaim } from './effects.js';
 
 // Glitchcore bass: hard, short, punchy hits -- a saw + square stack through
 // a tight resonant filter with a fast exponential decay and a sine sub drop.
@@ -130,6 +131,7 @@ export class BassLayer {
     osc2.stop(stopTime);
     sub.start(t0);
     sub.stop(stopTime);
+    reclaim(osc1, osc1, osc2, sub, oscGain, subGain, filter, env, [this.filterLFODepth, filter.frequency]);
   }
 
   // Sub drop for the final hit / endings.
@@ -153,5 +155,6 @@ export class BassLayer {
     env.gain.exponentialRampToValueAtTime(0.0001, t0 + attack + hold + release);
     osc.start(t0);
     osc.stop(stopTime);
+    reclaim(osc, osc, env);
   }
 }

@@ -108,6 +108,19 @@ export class AudioCore {
   pump(time, { depth = 0.6, release = 0.16 } = {}) {
     if (depth <= 0) return;
     const g = this.duckGain.gain;
+    // This fires on every kick -- for a piece meant to "just run", that's
+    // thousands of setTargetAtTime calls piling up in this one AudioParam's
+    // automation timeline over a long session, since browsers don't all
+    // prune old entries on their own (a known source of creeping
+    // memory/CPU on long-running Web Audio sessions, worse on Safari).
+    // Periodically collapse it: the duck always settles back to 1.0 well
+    // before the next kick, so it's safe to pin it there and wipe
+    // everything scheduled before this reset.
+    this._pumpCount = (this._pumpCount || 0) + 1;
+    if (this._pumpCount % 64 === 0) {
+      g.cancelScheduledValues(0);
+      g.setValueAtTime(1.0, time - 0.001);
+    }
     g.setTargetAtTime(Math.max(0.0001, 1 - depth), time, 0.004);
     g.setTargetAtTime(1.0, time + 0.01, Math.max(0.02, release / 4));
   }

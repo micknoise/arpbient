@@ -119,3 +119,29 @@ export function createNoiseBuffer(ctx, seconds = 4, type = 'brown') {
   }
   return buf;
 }
+
+// Every note/hit builds a small throwaway node graph (oscillators, gains,
+// filters, panners) and leans on the JS engine to garbage-collect it once
+// playback ends. Source nodes are spec'd to auto-disconnect once they
+// finish, but the downstream processing nodes aren't -- and browsers
+// (Safari/WebKit in particular) aren't always prompt about reclaiming that
+// graph on their own. Over a long "endless" session -- this is music meant
+// to just run -- that's thousands of stray nodes accumulating. Call once
+// per note with its source (whatever has .start()/.stop()) and every other
+// node created for it; they're explicitly disconnected the moment the
+// source ends, instead of waiting on GC.
+// Pass a plain node to disconnect all of its outputs, or a [node, target]
+// pair to disconnect only the connection into that specific destination --
+// needed when a persistent, still-in-use node (a shared LFO, say) feeds an
+// AudioParam on this transient note: a bare disconnect() on the shared node
+// would also sever it from every other note using it.
+export function reclaim(source, ...nodes) {
+  source.onended = () => {
+    for (const n of nodes) {
+      try {
+        if (Array.isArray(n)) n[0].disconnect(n[1]);
+        else n.disconnect();
+      } catch (e) { /* already disconnected */ }
+    }
+  };
+}

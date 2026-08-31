@@ -1,5 +1,5 @@
 import { midiToFreq, pick } from './theory.js';
-import { createSaturationCurve } from './effects.js';
+import { createSaturationCurve, reclaim } from './effects.js';
 
 // Glitchcore lead: the "stutter" -- a square blip that the conductor
 // schedules in rapid micro-repeats and with random octave jumps, plus short
@@ -66,6 +66,7 @@ export class LeadLayer {
     env.gain.exponentialRampToValueAtTime(0.0001, t0 + attack + decay);
     osc.start(t0);
     osc.stop(stopTime);
+    reclaim(osc, osc, filter, env, [this.filterLFODepth, filter.frequency]);
   }
 
   // Stutter: the signature glitch -- the same note fired N times at
@@ -119,6 +120,7 @@ export class LeadLayer {
       osc1.stop(stopTime);
       osc2.start(t0);
       osc2.stop(stopTime);
+      reclaim(osc1, osc1, osc2, oscGain, filter, env);
     }
   }
 
@@ -223,6 +225,10 @@ export class LeadLayer {
     osc2.stop(stopTime);
     air.start(t0);
     air.stop(stopTime);
+    reclaim(
+      osc, osc, osc2, air, mix, airGain, shaper, filter,
+      formant, formantGain, env, lfo, lfoDepth, [this.filterLFODepth, filter.frequency]
+    );
   }
 
   // Final chord cluster.
@@ -258,6 +264,7 @@ export class LeadLayer {
       osc.stop(stopTime);
       osc2.start(t0);
       osc2.stop(stopTime);
+      reclaim(osc, osc, osc2, filter, env);
     }
   }
 }

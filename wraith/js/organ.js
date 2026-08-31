@@ -1,5 +1,5 @@
 import { midiToFreq } from './theory.js';
-import { createChorus } from './effects.js';
+import { createChorus, reclaim } from './effects.js';
 
 // Church-organ swell layer. Built additively from a bright pipe-organ stack —
 // a strong fundamental plus the 8' and 4' ranks (2nd and 4th partials) and a
@@ -76,6 +76,7 @@ export class OrganLayer {
     const releaseEnd = releaseStart + release;
     const stopTime = releaseEnd + 0.3;
 
+    const voices = [];
     partials.forEach(([amp, mult]) => {
       [-1, 1].forEach((sign) => {
         const osc = ctx.createOscillator();
@@ -88,6 +89,7 @@ export class OrganLayer {
         g.connect(filter);
         osc.start(t0);
         osc.stop(stopTime);
+        voices.push(osc, g);
       });
     });
 
@@ -99,5 +101,6 @@ export class OrganLayer {
     env.gain.linearRampToValueAtTime(velocity, attackEnd);
     env.gain.setValueAtTime(velocity, releaseStart);
     env.gain.exponentialRampToValueAtTime(0.0001, releaseEnd);
+    reclaim(voices[0], ...voices, filter, env, [this.filterLFODepth, filter.frequency]);
   }
 }

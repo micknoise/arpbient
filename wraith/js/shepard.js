@@ -1,4 +1,5 @@
 import { midiToFreq } from './theory.js';
+import { reclaim } from './effects.js';
 
 // Shepard / "forever rising" layer. N octave-spaced sine voices carry a
 // static bell-shaped amplitude window (middle voices loudest) while all of
@@ -42,6 +43,7 @@ export class ShepardLayer {
 
     const stopTime = t0 + duration + 0.5;
 
+    const voices = [master];
     for (let k = 0; k < N; k++) {
       const bell = Math.sin((Math.PI * (k + 0.5)) / N); // static amplitude window
       const f0 = base * Math.pow(2, k);
@@ -59,6 +61,8 @@ export class ShepardLayer {
       g.connect(master);
       osc.start(t0);
       osc.stop(stopTime);
+      voices.push(osc, g);
     }
+    reclaim(voices[1], ...voices);
   }
 }

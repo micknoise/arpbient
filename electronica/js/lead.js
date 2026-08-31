@@ -1,5 +1,5 @@
 import { midiToFreq, pick } from './theory.js';
-import { createChorus, createSaturationCurve } from './effects.js';
+import { createChorus, createSaturationCurve, reclaim } from './effects.js';
 
 // Electronica lead: two jobs -- fast square/saw "plucks" that the
 // conductor runs as dense 16th arpeggios (with optional random octave jumps
@@ -112,6 +112,7 @@ export class LeadLayer {
     osc1.stop(stopTime);
     osc2.start(t0);
     osc2.stop(stopTime);
+    reclaim(osc1, osc1, osc2, oscGain, filter, env, [this.filterLFODepth, filter.frequency]);
   }
 
   // Long ringing tone for the sustained moments, with a stranger IDM edge:
@@ -222,6 +223,10 @@ export class LeadLayer {
     body.stop(stopTime);
     air.start(t0);
     air.stop(stopTime);
+    reclaim(
+      osc, osc, osc2, body, air, mix, bodyGain, airGain, shaper, filter,
+      formant, formantGain, env, lfo, lfoDepth, [this.filterLFODepth, filter.frequency]
+    );
   }
 
   // Final chord cluster.
@@ -257,6 +262,7 @@ export class LeadLayer {
       osc.stop(stopTime);
       osc2.start(t0);
       osc2.stop(stopTime);
+      reclaim(osc, osc, osc2, filter, env);
     }
   }
 }

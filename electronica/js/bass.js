@@ -1,4 +1,5 @@
 import { midiToFreq } from './theory.js';
+import { reclaim } from './effects.js';
 
 // Electronica bass: a "noodle" -- a detuned saw pair through a snappy
 // resonant filter, with optional portamento between notes (pitch glides in
@@ -131,6 +132,7 @@ export class BassLayer {
     osc2.stop(stopTime);
     sub.start(t0);
     sub.stop(stopTime);
+    reclaim(osc1, osc1, osc2, sub, oscGain, subGain, filter, env, [this.filterLFODepth, filter.frequency]);
   }
 
   // Long low bed for breaks/endings.
@@ -165,5 +167,6 @@ export class BassLayer {
     osc.stop(stopTime);
     sub.start(t0);
     sub.stop(stopTime);
+    reclaim(osc, osc, sub, filter, env, [this.filterLFODepth, filter.frequency]);
   }
 }

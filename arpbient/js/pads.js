@@ -1,5 +1,5 @@
 import { midiToFreq } from './theory.js';
-import { createChorus } from './effects.js';
+import { createChorus, reclaim } from './effects.js';
 
 // Pad layer with two alternating voices sharing one bus/filter-LFO/chorus:
 // 'saw' is the Juno-style detuned-saws-plus-sub pad through a lowpass; 'glass'
@@ -127,6 +127,7 @@ export class PadLayer {
       o.start(t0);
       o.stop(stopTime);
     });
+    reclaim(osc1, osc1, osc2, sub, oscGain, subGain, filter, env, [this.filterLFODepth, filter.frequency]);
   }
 
   // Spookier, glassier alternate pad voice: an FM bell tone (sine carrier
@@ -202,5 +203,9 @@ export class PadLayer {
       o.start(t0);
       o.stop(stopTime);
     });
+    reclaim(
+      carrier, carrier, modulator, shimmer, vibrato, modGain, shimmerGain,
+      vibratoDepth, voiceGain, filter, env, [this.filterLFODepth, filter.frequency]
+    );
   }
 }

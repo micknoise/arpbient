@@ -1,5 +1,5 @@
 import { midiToFreq } from './theory.js';
-import { createChorus } from './effects.js';
+import { createChorus, reclaim } from './effects.js';
 
 // House bass: two gently detuned saws + a sine sub, low Q lowpass, warm
 // medium-decay plucks. The conductor sequences syncopated 16th patterns
@@ -91,6 +91,7 @@ export class BassLayer {
     osc2.stop(stopTime);
     sub.start(t0);
     sub.stop(stopTime);
+    reclaim(osc1, osc1, osc2, sub, oscGain, subGain, filter, env);
   }
 
   // Long sustained root for endings/breakdowns.
@@ -124,5 +125,6 @@ export class BassLayer {
     osc.stop(stopTime);
     sub.start(t0);
     sub.stop(stopTime);
+    reclaim(osc, osc, sub, filter, env);
   }
 }

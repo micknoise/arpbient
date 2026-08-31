@@ -1,4 +1,5 @@
 import { midiToFreq } from './theory.js';
+import { reclaim } from './effects.js';
 
 // Defiant low-melody voice — NOT an ostinato. Each call is one sustained note
 // in the low octave, built to sound bright and resonant (detuned saws through
@@ -62,6 +63,7 @@ export class BassLayer {
     const stopTime = releaseEnd + 0.3;
 
     // saw, detuned saw, sub sine — one octave below the body for weight.
+    const voices = [];
     [[f, 1.0, 'sawtooth', -detune * 0.5], [f, 1.0, 'sawtooth', detune * 0.5], [f / 2, 0.85, 'sine', 0]]
       .forEach(([freq, amp, type, cents]) => {
         const osc = ctx.createOscillator();
@@ -74,6 +76,7 @@ export class BassLayer {
         g.connect(filter);
         osc.start(t0);
         osc.stop(stopTime);
+        voices.push(osc, g);
       });
 
     filter.connect(env);
@@ -83,6 +86,7 @@ export class BassLayer {
     env.gain.linearRampToValueAtTime(velocity, attackEnd);
     env.gain.setValueAtTime(velocity, releaseStart);
     env.gain.exponentialRampToValueAtTime(0.0001, releaseEnd);
+    reclaim(voices[0], ...voices, filter, env);
   }
 
   // Octave-up "synth string": a small detuned-saw ensemble, smoothed to a
@@ -105,6 +109,7 @@ export class BassLayer {
     const releaseEnd = releaseStart + release;
     const stopTime = releaseEnd + 0.3;
 
+    const voices = [];
     [-16, -5, 5, 16].forEach((cents) => {
       const osc = ctx.createOscillator();
       osc.type = 'sawtooth';
@@ -116,6 +121,7 @@ export class BassLayer {
       g.connect(filter);
       osc.start(t0);
       osc.stop(stopTime);
+      voices.push(osc, g);
     });
 
     filter.connect(env);
@@ -125,6 +131,7 @@ export class BassLayer {
     env.gain.linearRampToValueAtTime(velocity, attackEnd);
     env.gain.setValueAtTime(velocity, releaseStart);
     env.gain.exponentialRampToValueAtTime(0.0001, releaseEnd);
+    reclaim(voices[0], ...voices, filter, env);
   }
 
   // Sub drop: a sub-octave sine that falls a run of semitones — the transient
@@ -167,5 +174,6 @@ export class BassLayer {
     body.start(t0);
     sub.stop(end + 0.1);
     body.stop(end + 0.1);
+    reclaim(sub, sub, body, bodyGain, filter, env);
   }
 }

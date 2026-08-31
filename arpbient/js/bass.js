@@ -1,4 +1,5 @@
 import { midiToFreq } from './theory.js';
+import { reclaim } from './effects.js';
 
 // Punchy resonant sub-bass (ARP Odyssey acid character): saw + sine sub,
 // a fast-opening filter that snaps shut right after each hit. Built as a
@@ -74,5 +75,6 @@ export class BassLayer {
     osc.stop(stopTime);
     sub.start(t0);
     sub.stop(stopTime);
+    reclaim(osc, osc, sub, oscGain, subGain, filter, env);
   }
 }

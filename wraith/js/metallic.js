@@ -1,4 +1,5 @@
 import { midiToFreq } from './theory.js';
+import { reclaim } from './effects.js';
 
 // Metallic / glass layer: two distinct voices that produce the "uncomfortable,
 // unsettling" high-end of a horror score.
@@ -65,6 +66,7 @@ export class MetallicLayer {
     const t0 = time;
     const stopTime = t0 + decay + 0.3;
 
+    const voices = [];
     partials.forEach(([amp, mult]) => {
       // Each partial gets a partner a few cents sharp -> slow beating.
       [0, beats].forEach((det) => {
@@ -78,6 +80,7 @@ export class MetallicLayer {
         g.connect(filter);
         osc.start(t0);
         osc.stop(stopTime);
+        voices.push(osc, g);
       });
     });
 
@@ -87,6 +90,7 @@ export class MetallicLayer {
     env.gain.setValueAtTime(0.0001, t0);
     env.gain.linearRampToValueAtTime(0.5, t0 + 0.004);
     env.gain.exponentialRampToValueAtTime(0.0001, t0 + decay);
+    reclaim(voices[0], ...voices, filter, env);
   }
 
   _ring(f, time, ratio, decay, velocity, beats) {
@@ -140,5 +144,6 @@ export class MetallicLayer {
       o.start(t0);
       o.stop(stopTime);
     });
+    reclaim(carrier, carrier, carrier2, mod, ring, modDepth, level, filter, env);
   }
 }

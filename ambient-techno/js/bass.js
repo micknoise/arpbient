@@ -1,4 +1,5 @@
 import { midiToFreq } from './theory.js';
+import { reclaim } from './effects.js';
 
 // Ambient-techno bass: a deep, slow sub. Sine sub + a quiet low saw for
 // body, very low cutoff, long slow swells. The conductor uses it for
@@ -68,5 +69,6 @@ export class BassLayer {
       o.start(t0);
       o.stop(stopTime);
     });
+    reclaim(sub, sub, saw, sawGain, filter, env);
   }
 }
