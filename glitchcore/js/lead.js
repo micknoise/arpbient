@@ -6,7 +6,7 @@ import { createSaturationCurve } from './effects.js';
 // detuned stab chords and rare long ringing tones. Everything short and
 // hard; the chaos is in the scheduling, not long envelopes.
 export class LeadLayer {
-  constructor(ctx, audioCore, { reverbAmount = 0.3, delayAmount = 0.25 } = {}) {
+  constructor(ctx, audioCore, { reverbAmount = 0.6, delayAmount = 0.25 } = {}) {
     this.ctx = ctx;
 
     this.output = ctx.createGain();

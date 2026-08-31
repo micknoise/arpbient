@@ -18,12 +18,15 @@ export class PadLayer {
     this.chorus.output.connect(this.output);
     audioCore.connectLayerOutput(this.output, { reverbAmount, delayAmount });
 
-    // Shared slow filter LFO so all voices breathe together.
+    // Shared slow filter LFO so all voices breathe together. The depth is
+    // capped well below the layer's lowest cutoffBase (500 Hz) so the
+    // lowpass can never be dragged toward 0 Hz (that thud is the click
+    // source); at 400 the filter stays >= ~100 Hz and still sweeps wide.
     this.filterLFO = ctx.createOscillator();
     this.filterLFO.type = 'sine';
     this.filterLFO.frequency.value = 0.03;
     this.filterLFODepth = ctx.createGain();
-    this.filterLFODepth.gain.value = 500;
+    this.filterLFODepth.gain.value = 400;
     this.filterLFO.connect(this.filterLFODepth);
     this.filterLFO.start();
   }
@@ -36,8 +39,11 @@ export class PadLayer {
     this.filterLFO.frequency.setTargetAtTime(hz, this.ctx.currentTime, 4);
   }
 
+  // Capped so the lowpass (base >= 500 Hz) can't be driven below ~100 Hz --
+  // a filter dragged toward 0 Hz is where the clicks came from.
   setFilterDepth(v) {
-    this.filterLFODepth.gain.setTargetAtTime(v, this.ctx.currentTime, 4);
+    const depth = Math.max(0, Math.min(400, v));
+    this.filterLFODepth.gain.setTargetAtTime(depth, this.ctx.currentTime, 4);
   }
 
   // attack/hold/release in seconds. Wide, slow.

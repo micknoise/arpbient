@@ -74,8 +74,10 @@ export class BassLayer {
     const release = 0.08;
     const stopTime = holdEnd + release + 0.05;
 
+    // Ramp down to the floor (>=140 Hz) so the lowpass never drops toward
+    // 0 Hz (the click source) -- the note's body stays above the ~40 Hz floor.
     filter.frequency.setValueAtTime(cutoffBase, t0);
-    filter.frequency.exponentialRampToValueAtTime(Math.max(55, cutoffFloor), t0 + attack + decay * 1.1);
+    filter.frequency.exponentialRampToValueAtTime(Math.max(140, cutoffFloor), t0 + attack + decay * 1.1);
 
     env.gain.setValueAtTime(0.0001, t0);
     env.gain.linearRampToValueAtTime(velocity, t0 + attack);

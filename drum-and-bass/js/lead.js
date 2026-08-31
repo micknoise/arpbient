@@ -5,7 +5,7 @@ import { createChorus, createSaturationCurve } from './effects.js';
 // sine + triangle + a touch of saw through a chorus) for syncopated
 // arpeggios, plus long singing sustained notes for the emotional moments.
 export class LeadLayer {
-  constructor(ctx, audioCore, { reverbAmount = 0.4, delayAmount = 0.3 } = {}) {
+  constructor(ctx, audioCore, { reverbAmount = 0.65, delayAmount = 0.3 } = {}) {
     this.ctx = ctx;
 
     this.output = ctx.createGain();

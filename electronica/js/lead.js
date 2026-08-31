@@ -7,7 +7,7 @@ import { createChorus, createSaturationCurve } from './effects.js';
 // odd sustained moment. Light chorus keeps the plucks wide without turning
 // them into pads.
 export class LeadLayer {
-  constructor(ctx, audioCore, { reverbAmount = 0.35, delayAmount = 0.3 } = {}) {
+  constructor(ctx, audioCore, { reverbAmount = 0.6, delayAmount = 0.3 } = {}) {
     this.ctx = ctx;
 
     this.output = ctx.createGain();
