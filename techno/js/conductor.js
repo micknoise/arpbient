@@ -45,9 +45,6 @@ export class Conductor {
       density: 0.6,
       intensity: 0.3,
       section: 'main',
-      bassLevel: 0.55,
-      leadLevel: 0.3,
-      drumLevel: 0.9,
     };
     this.intensityTarget = 0.3;
     this.sectionUntilBar = 0;
@@ -121,7 +118,7 @@ export class Conductor {
   _initMovement() {
     this.chordIndex = 0;
     this.stepCount = 0;
-    this.sectionUntilBar = 0;
+    this.sectionUntilBar = pick([4, 8]);
     this._advanceChord(this.ctx.currentTime, true);
     this._applySection('main');
   }
@@ -251,7 +248,7 @@ export class Conductor {
     // and only builds by adding layers (see _layerOn).
     if (barIndex > 0 && barIndex >= this.sectionUntilBar) {
       this._applySection(this._pickSection());
-      this.sectionUntilBar = barIndex + randInt(4, 8);
+      this.sectionUntilBar = barIndex + pick([4, 8]);
     } else if (barIndex > 0) {
       this.sectionBar++;
     }
@@ -304,7 +301,7 @@ export class Conductor {
     // breakdown stays sparse and only lets the top voice in late.
     this.layerGates =
       name === 'peak' ? {} :
-      name === 'breakdown' ? { openHat: 3, rim: 99, top: 2 } :
+      name === 'breakdown' ? { openHat: 3, rim: 99, top: 1 } :
       { openHat: 1, rim: 2, top: 1 };
     // A 'main' section's lead is sometimes the section-long polyrhythmic
     // dotted loop instead of the grid pluck (rolled once, with the section).
@@ -483,8 +480,8 @@ export class Conductor {
 
   _applyLevels() {
     const s = this.macro.section;
-    const bassL = s === 'breakdown' ? 0.28 : 0.34 + this.macro.intensity * 0.08;
-    const leadL = s === 'main' ? 0.4 : s === 'peak' ? 0.5 : 0.2;
+    const bassL = s === 'breakdown' ? 0.24 : 0.3 + this.macro.intensity * 0.08;
+    const leadL = s === 'main' ? 0.4 : s === 'peak' ? 0.5 : 0.32;
     const drumL = s === 'breakdown' ? 0.75 : 0.9;
     this.bass.setLevel(clamp01(bassL));
     this.lead.setLevel(clamp01(leadL));

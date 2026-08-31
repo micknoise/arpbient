@@ -92,9 +92,11 @@ export class Conductor {
     return 60 / this.bpm / this.stepsPerBeat;
   }
 
-  // Swing delays the off-grid 16ths (odd steps) -- the house shuffle.
+  // Swing delays every 16th that isn't on a quarter-note downbeat -- the
+  // house shuffle. Downbeats (0,4,8,12) anchor the groove; everything else,
+  // including the off-beat open hats on the "and" (2,6,10,14), lays back.
   _swingTime(time, barStep) {
-    if (barStep % 2 === 1) time += this.swing * this._stepDuration() * 0.45;
+    if (barStep % 4 !== 0) time += this.swing * this._stepDuration() * 0.45;
     return time;
   }
 
@@ -118,7 +120,7 @@ export class Conductor {
   _initMovement() {
     this.chordIndex = 0;
     this.stepCount = 0;
-    this.sectionUntilBar = 0;
+    this.sectionUntilBar = pick([4, 8]);
     this._advanceChord(this.ctx.currentTime, true);
     this._applySection('groove');
   }
@@ -250,7 +252,7 @@ export class Conductor {
     // builds by adding texture layers (see _layerOn).
     if (barIndex > 0 && barIndex >= this.sectionUntilBar) {
       this._applySection(this._pickSection());
-      this.sectionUntilBar = barIndex + randInt(4, 8);
+      this.sectionUntilBar = barIndex + pick([4, 8]);
     } else if (barIndex > 0) {
       this.sectionBar++;
     }
@@ -312,7 +314,7 @@ export class Conductor {
     return this.sectionBar >= (this.layerGates[name] ?? 0);
   }
 
-  _advanceChord(silent = false) {
+  _advanceChord(time, silent = false) {
     const degree = this.progression[this.chordIndex % this.progression.length];
     this.chordIndex++;
     this.chordSemis = buildChord(this.mode, degree, { seventh: true, add9: Math.random() < 0.4 });

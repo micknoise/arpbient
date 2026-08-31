@@ -560,7 +560,7 @@ export class Conductor {
   }
 
   _pickHoldBars() {
-    const opts = [3, 4, 4, 5, 6];
+    const opts = [4, 4, 4, 8];
     return opts[Math.floor(Math.random() * opts.length)];
   }
 

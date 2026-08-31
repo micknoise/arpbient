@@ -116,7 +116,7 @@ export class Conductor {
   _initMovement() {
     this.chordIndex = 0;
     this.stepCount = 0;
-    this.sectionUntilBar = 0;
+    this.sectionUntilBar = pick([4, 8]);
     this._advanceChord(this.ctx.currentTime, true);
     this._applySection('full');
   }
@@ -237,7 +237,7 @@ export class Conductor {
     // and only builds by adding layers (see _layerOn).
     if (barIndex > 0 && barIndex >= this.sectionUntilBar) {
       this._applySection(this._pickSection());
-      this.sectionUntilBar = barIndex + randInt(4, 8);
+      this.sectionUntilBar = barIndex + pick([4, 8]);
     } else if (barIndex > 0) {
       this.sectionBar++;
     }
