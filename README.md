@@ -54,7 +54,7 @@ electronic-dub/     the one-drop/dub engine
 electronica/        the IDM engine
 glitchcore/         the breakbeat-chaos engine
 drum-and-bass/      the 2-step/liquid engine
-tools/              smoke.js (headless scheduler test)
+tools/              stress.js (scheduler stress test), browser-probe.mjs (headless-Chrome audio probe)
 ```
 
 The newer engines (techno onward) share a small set of verbatim-copied core
@@ -73,7 +73,9 @@ static files and use `<script type="module">` or an ESM-capable bundler.
 
 ## Branches
 
-- `main` — both apps, as described above.
+- `main` — all nine engines, as described above.
+- `genre-engines` — the branch the seven newer engines (techno onward) were developed on;
+  now merged into `main`.
 - `v4-horror` — the development branch Wraith was built on; its code now lives in
   [`wraith/`](wraith/), kept around as a historical snapshot.
 - `v1-ambient-wash` — first working Arpbient version: full arpeggiator, wind + water texture
