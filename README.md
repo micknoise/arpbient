@@ -1,7 +1,7 @@
 # Generative Music Engines
 
 A family of self-contained, endless generative music engines for the browser — synthesized
-live with the Web Audio API. No samples, no build step, no dependencies.
+live with the Web Audio API. No samples, no build step, no dependencies. This was a test for QWEN3.8 27B Q4 using claude code as an interface. It went pretty well for a local model. The outcome is almost usable. 
 
 | App | Character | Where to find it |
 | --- | --- | --- |
