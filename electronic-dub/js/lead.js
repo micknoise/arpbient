@@ -1,5 +1,5 @@
 import { midiToFreq } from './theory.js';
-import { createChorus } from './effects.js';
+import { createChorus, reclaim } from './effects.js';
 
 // Dub lead: two jobs -- short bright "skank" chord stabs on the offbeats,
 // and sparse long melody notes. Both are wired into the shared delay/reverb
@@ -85,6 +85,7 @@ export class LeadLayer {
       osc1.stop(stopTime);
       osc2.start(t0);
       osc2.stop(stopTime);
+      reclaim(osc1, osc1, osc2, oscGain, filter, env, [this.filterLFODepth, filter.frequency]);
     }
   }
 
@@ -151,6 +152,7 @@ export class LeadLayer {
     osc.stop(stopTime);
     sub.start(t0);
     sub.stop(stopTime);
+    reclaim(osc, osc, sub, mix, subGain, filter, env, lfo, lfoDepth, [this.filterLFODepth, filter.frequency]);
   }
 
   // Final-chord swell for endings: slow attack, long hold, huge release
@@ -190,6 +192,7 @@ export class LeadLayer {
       osc.stop(stopTime);
       osc2.start(t0);
       osc2.stop(stopTime);
+      reclaim(osc, osc, osc2, filter, env, [this.filterLFODepth, filter.frequency]);
     }
   }
 }

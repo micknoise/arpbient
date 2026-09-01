@@ -1,5 +1,5 @@
 import { midiToFreq } from './theory.js';
-import { createChorus } from './effects.js';
+import { createChorus, reclaim } from './effects.js';
 
 // House lead layer: lush chorus-processed voices.
 //  - 'stab':   detuned-saw chord stabs (the syncopated off-beat chords)
@@ -84,15 +84,16 @@ export class LeadLayer {
 
     // Slow vibrato for the phrase voice.
     let vibrato = null;
+    let vibratoDepth = null;
     if (vibratoRate > 0) {
       vibrato = ctx.createOscillator();
       vibrato.type = 'sine';
       vibrato.frequency.value = vibratoRate;
-      const depth = ctx.createGain();
-      depth.gain.value = 4 + Math.random() * 4;
-      vibrato.connect(depth);
-      depth.connect(osc1.detune);
-      depth.connect(osc2.detune);
+      vibratoDepth = ctx.createGain();
+      vibratoDepth.gain.value = 4 + Math.random() * 4;
+      vibrato.connect(vibratoDepth);
+      vibratoDepth.connect(osc1.detune);
+      vibratoDepth.connect(osc2.detune);
       vibrato.start(time);
       vibrato.stop(time + attack + hold + decay + 0.2);
     }
@@ -127,5 +128,7 @@ export class LeadLayer {
     osc1.stop(stopTime);
     osc2.start(t0);
     osc2.stop(stopTime);
+    reclaim(osc1, osc1, osc2, filter, env);
+    if (vibrato) reclaim(vibrato, vibrato, vibratoDepth);
   }
 }

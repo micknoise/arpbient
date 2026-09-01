@@ -1,5 +1,5 @@
 import { midiToFreq } from './theory.js';
-import { createChorus } from './effects.js';
+import { createChorus, reclaim } from './effects.js';
 
 // DnB bass: the Reese -- two heavily detuned saws through a resonant
 // filter whose cutoff is amplitude-modulated (the "wobble"), plus a sine
@@ -125,6 +125,7 @@ export class BassLayer {
       lfoDepth.connect(filter.frequency);
       lfo.start(t0);
       lfo.stop(stopTime);
+      reclaim(lfo, lfo, lfoDepth);
     }
 
     osc1.connect(oscGain);
@@ -152,6 +153,7 @@ export class BassLayer {
     osc2.stop(stopTime);
     sub.start(t0);
     sub.stop(stopTime);
+    reclaim(osc1, osc1, osc2, sub, oscGain, subGain, filter, env, [this.filterLFODepth, filter.frequency]);
   }
 
   // Deep sub drop for endings.
@@ -175,5 +177,6 @@ export class BassLayer {
     env.gain.exponentialRampToValueAtTime(0.0001, t0 + attack + hold + release);
     osc.start(t0);
     osc.stop(stopTime);
+    reclaim(osc, osc, env);
   }
 }

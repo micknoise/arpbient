@@ -1,4 +1,5 @@
 import { midiToFreq } from './theory.js';
+import { reclaim } from './effects.js';
 
 // Juno/ARP-style arpeggiator layer: short plucked notes with a fast filter
 // envelope (open-then-close) layered on top of a shared slow filter LFO.
@@ -127,5 +128,6 @@ export class ArpLayer {
     osc.stop(stopTime);
     osc2.start(time);
     osc2.stop(stopTime);
+    reclaim(osc, osc, osc2, sawGain, sqGain, filter, env, [this.filterLFODepth, filter.frequency]);
   }
 }

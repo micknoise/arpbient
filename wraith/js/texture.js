@@ -1,4 +1,4 @@
-import { createNoiseBuffer } from './effects.js';
+import { createNoiseBuffer, reclaim } from './effects.js';
 
 // Non-musical sound-design layer: a persistent wind/room bed, plus discrete
 // "scrape", "creak", and "crackle" events that punctuate a scene with the
@@ -95,6 +95,7 @@ export class TextureLayer {
     src.stop(t0 + duration + 0.1);
     wob.start(t0);
     wob.stop(t0 + duration + 0.1);
+    reclaim(src, src, wob, wobDepth, filter, env);
   }
 
   // Creak / groan: a low saw pitch-sweep through a narrow high-Q bandpass,
@@ -139,6 +140,7 @@ export class TextureLayer {
     osc.stop(t0 + duration + 0.1);
     wob.start(t0);
     wob.stop(t0 + duration + 0.1);
+    reclaim(osc, osc, wob, wobDepth, filter, env);
   }
 
   // Crackle / rattle: a burst of lowpassed noise broken into rough pulses —
@@ -167,5 +169,6 @@ export class TextureLayer {
     }
     src.start(t0);
     src.stop(t0 + duration + 0.1);
+    reclaim(src, src, lp, env);
   }
 }

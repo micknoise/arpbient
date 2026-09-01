@@ -106,14 +106,14 @@ export class DroneLayer {
     this.saw = ctx.createOscillator();
     this.saw.type = 'sawtooth';
     this.saw.frequency.value = midiToFreq(this.baseMidi);
-    const sawLp = ctx.createBiquadFilter();
-    sawLp.type = 'lowpass';
-    sawLp.frequency.value = 130;
+    this._sawLp = ctx.createBiquadFilter();
+    this._sawLp.type = 'lowpass';
+    this._sawLp.frequency.value = 130;
     this.sawGain = ctx.createGain();
     this.sawGain.gain.value = 0.0;
     this.pitchLfoDepth.connect(this.saw.detune);
-    this.saw.connect(sawLp);
-    sawLp.connect(this.sawGain);
+    this.saw.connect(this._sawLp);
+    this._sawLp.connect(this.sawGain);
     this.sawGain.connect(this.voiceMix);
     this.saw.start();
   }
@@ -121,11 +121,27 @@ export class DroneLayer {
   stop() {
     if (!this.started) return;
     this.started = false;
+    // The voices/saw are rebuilt fresh every start() (a new movement), but
+    // their gains stay wired into the persistent voiceMix/pitchLfoDepth
+    // buses until explicitly disconnected -- otherwise every movement
+    // leaves behind a stopped, orphaned copy of this whole voice graph
+    // still attached to those long-lived nodes.
     this.voices.forEach((v) => {
       v.oscA.stop();
       v.oscB.stop();
+      try { v.oscA.disconnect(); } catch (e) { /* already disconnected */ }
+      try { v.oscB.disconnect(); } catch (e) { /* already disconnected */ }
+      try { v.gain.disconnect(); } catch (e) { /* already disconnected */ }
+      try { this.pitchLfoDepth.disconnect(v.oscA.detune); } catch (e) { /* already disconnected */ }
+      try { this.pitchLfoDepth.disconnect(v.oscB.detune); } catch (e) { /* already disconnected */ }
     });
-    if (this.saw) this.saw.stop();
+    if (this.saw) {
+      this.saw.stop();
+      try { this.saw.disconnect(); } catch (e) { /* already disconnected */ }
+      try { this._sawLp.disconnect(); } catch (e) { /* already disconnected */ }
+      try { this.sawGain.disconnect(); } catch (e) { /* already disconnected */ }
+      try { this.pitchLfoDepth.disconnect(this.saw.detune); } catch (e) { /* already disconnected */ }
+    }
     // The LFOs keep running (they're started once for the context's life and
     // cannot be re-started after being stopped) — with no voices connected
     // they're inert, and the next start() rebuilds fresh voices onto them.

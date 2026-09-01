@@ -1,4 +1,5 @@
 import { midiToFreq } from './theory.js';
+import { reclaim } from './effects.js';
 
 // Techno lead layer with three characters sharing one bus:
 //  - 'pluck': short resonant arpeggio hits (the 16th-note sequenced line)
@@ -78,6 +79,7 @@ export class LeadLayer {
     osc.stop(stopTime);
     osc2.start(time);
     osc2.stop(stopTime);
+    reclaim(osc, osc, osc2, filter, env, [this.filterLFODepth, filter.frequency]);
   }
 
   // Detuned-saw chord stab.
@@ -153,5 +155,6 @@ export class LeadLayer {
     osc1.stop(stopTime);
     osc2.start(t0);
     osc2.stop(stopTime);
+    reclaim(osc1, osc1, osc2, filter, env, [this.filterLFODepth, filter.frequency]);
   }
 }

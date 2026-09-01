@@ -1,5 +1,5 @@
 import { midiToFreq } from './theory.js';
-import { createSaturationCurve } from './effects.js';
+import { createSaturationCurve, reclaim } from './effects.js';
 
 // Techno acid bass: a hard-saw voice with a high-Q resonant lowpass that
 // opens per hit and snaps shut, a sine sub underneath, and an optional
@@ -115,5 +115,6 @@ export class BassLayer {
     osc.stop(stopTime);
     sub.start(t0);
     sub.stop(stopTime);
+    reclaim(osc, osc, sub, oscGain, subGain, filter, env, [this.filterLFODepth, filter.frequency]);
   }
 }

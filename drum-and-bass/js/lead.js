@@ -1,5 +1,5 @@
 import { midiToFreq, pick } from './theory.js';
-import { createChorus, createSaturationCurve } from './effects.js';
+import { createChorus, createSaturationCurve, reclaim } from './effects.js';
 
 // DnB lead: the liquid melodic top -- bright plucks (a "piano" timbre:
 // sine + triangle + a touch of saw through a chorus) for syncopated
@@ -96,6 +96,7 @@ export class LeadLayer {
     osc2.stop(stopTime);
     osc3.start(t0);
     osc3.stop(stopTime);
+    reclaim(osc1, osc1, osc2, osc3, g1, g2, g3, filter, env, [this.filterLFODepth, filter.frequency]);
   }
 
   // Long singing sustained note -- the liquid moment, but with a stranger
@@ -208,6 +209,10 @@ export class LeadLayer {
     body.stop(stopTime);
     air.start(t0);
     air.stop(stopTime);
+    reclaim(
+      osc, osc, osc2, body, air, mix, bodyGain, airGain, shaper, filter,
+      formant, formantGain, env, lfo, lfoDepth, [this.filterLFODepth, filter.frequency]
+    );
   }
 
   // Final chord swell.
@@ -252,6 +257,7 @@ export class LeadLayer {
       osc2.stop(stopTime);
       sub.start(t0);
       sub.stop(stopTime);
+      reclaim(osc, osc, osc2, sub, subGain, filter, env);
     }
   }
 }

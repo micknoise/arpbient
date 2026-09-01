@@ -1,5 +1,5 @@
 import { midiToFreq } from './theory.js';
-import { createChorus } from './effects.js';
+import { createChorus, reclaim } from './effects.js';
 
 // Dub bass: a detuned saw pair + sine sub through a resonant lowpass, with a
 // fast attack and a LONG tail -- the classic one-drop bass note. The echo
@@ -118,6 +118,7 @@ export class BassLayer {
     osc2.stop(stopTime);
     sub.start(t0);
     sub.stop(stopTime);
+    reclaim(osc1, osc1, osc2, sub, oscGain, subGain, filter, env, [this.filterLFODepth, filter.frequency]);
   }
 
   // Long sustained root for endings -- a wall of low end underneath the
@@ -155,5 +156,6 @@ export class BassLayer {
     osc.stop(stopTime);
     sub.start(t0);
     sub.stop(stopTime);
+    reclaim(osc, osc, sub, filter, env, [this.filterLFODepth, filter.frequency]);
   }
 }

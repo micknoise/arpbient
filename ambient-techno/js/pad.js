@@ -1,5 +1,5 @@
 import { midiToFreq } from './theory.js';
-import { createChorus } from './effects.js';
+import { createChorus, reclaim } from './effects.js';
 
 // Ambient-techno pad: wide, slow, evolving. Detuned saws + sub through a
 // low Q lowpass with a slow shared filter LFO, and a stereo chorus. The
@@ -107,5 +107,6 @@ export class PadLayer {
       o.start(t0);
       o.stop(stopTime);
     });
+    reclaim(osc1, osc1, osc2, sub, subGain, filter, env, [this.filterLFODepth, filter.frequency]);
   }
 }

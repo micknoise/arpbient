@@ -2,8 +2,9 @@
 // "hardware"; a genre's character comes from which voices the conductor
 // fires, on which 16th steps, and with what velocity/pan/tone -- so a
 // "techno hat" and a "dub brush" are the same node graph with different
-// parameters. All voices are transient sources created per hit.
-import { createNoiseBuffer } from './effects.js';
+// parameters. All voices are transient sources created per hit; each is
+// explicitly reclaimed (disconnected) once it ends rather than left for GC.
+import { createNoiseBuffer, reclaim } from './effects.js';
 import { midiToFreq } from './theory.js';
 
 export class DrumKit {
@@ -34,15 +35,17 @@ export class DrumKit {
     this.kickBus.gain.setTargetAtTime(v, this.ctx.currentTime, 0.4);
   }
 
+  // Returns the panner node if one was created, so callers can reclaim it.
   _pan(node, pan) {
     if (!pan) {
       node.connect(this.bus);
-      return;
+      return null;
     }
     const p = this.ctx.createStereoPanner();
     p.pan.value = pan;
     node.connect(p);
     p.connect(this.bus);
+    return p;
   }
 
   _noiseHit(time, { duration, filterType, frequency, q = 0.8, gain = 1, rate = 1, target = null, pan = 0 } = {}) {
@@ -58,10 +61,11 @@ export class DrumKit {
     env.gain.value = 0.0001;
     src.connect(filter);
     filter.connect(env);
+    let p = null;
     if (target) {
       env.connect(target);
     } else if (pan) {
-      const p = ctx.createStereoPanner();
+      p = ctx.createStereoPanner();
       p.pan.value = pan;
       env.connect(p);
       p.connect(this.bus);
@@ -73,6 +77,7 @@ export class DrumKit {
     const offset = Math.random() * 1.0;
     src.start(time, offset);
     src.stop(time + duration + 0.05);
+    reclaim(src, src, filter, env, ...(p ? [p] : []));
   }
 
   playKick(time, { velocity = 1, startFreq = 150, endFreq = 42, decay = 0.3, click = 0.35, body = 0.7 } = {}) {
@@ -89,6 +94,7 @@ export class DrumKit {
     env.connect(this.kickBus);
     osc.start(time);
     osc.stop(time + decay + 0.05);
+    reclaim(osc, osc, env);
 
     // Body: a low sub underneath the beater gives the kick weight.
     if (body > 0) {
@@ -102,6 +108,7 @@ export class DrumKit {
       subEnv.connect(this.kickBus);
       sub.start(time);
       sub.stop(time + decay * 1.5 + 0.05);
+      reclaim(sub, sub, subEnv);
     }
 
     // Transient: a short highpass click for the attack.
@@ -127,9 +134,10 @@ export class DrumKit {
     oscEnv.gain.setValueAtTime(velocity * 0.7, time);
     oscEnv.gain.exponentialRampToValueAtTime(0.0001, time + decay * 0.8);
     osc.connect(oscEnv);
-    this._pan(oscEnv, pan);
+    const p = this._pan(oscEnv, pan);
     osc.start(time);
     osc.stop(time + decay + 0.05);
+    reclaim(osc, osc, oscEnv, ...(p ? [p] : []));
 
     this._noiseHit(time, {
       duration: decay,
@@ -177,6 +185,7 @@ export class DrumKit {
     const offset = Math.random() * 1.0;
     src.start(time, offset);
     src.stop(time + decay + 0.05);
+    reclaim(src, src, filter, env, p);
   }
 
   playRim(time, { velocity = 0.5, frequency = 950, pan = 0 } = {}) {
@@ -199,6 +208,7 @@ export class DrumKit {
     p.connect(this.bus);
     osc.start(time);
     osc.stop(time + 0.1);
+    reclaim(osc, osc, filter, env, p);
   }
 
   playTom(time, { velocity = 0.8, startFreq = 130, endFreq = 48, decay = 0.3 } = {}) {
@@ -214,6 +224,7 @@ export class DrumKit {
     env.connect(this.bus);
     osc.start(time);
     osc.stop(time + decay + 0.05);
+    reclaim(osc, osc, env);
   }
 
   playCrash(time, { velocity = 0.5, frequency = 6000, decay = 1.2 } = {}) {
@@ -248,6 +259,7 @@ export class DrumKit {
     env.connect(this.bus);
     src.start(time, Math.random());
     src.stop(time + duration + 0.5);
+    reclaim(src, src, filter, env);
   }
 
   // Falling noise sweep -- the "drop" that opens a new movement.
@@ -269,5 +281,6 @@ export class DrumKit {
     env.connect(this.bus);
     src.start(time, Math.random());
     src.stop(time + duration + 0.2);
+    reclaim(src, src, filter, env);
   }
 }
